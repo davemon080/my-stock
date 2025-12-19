@@ -11,14 +11,13 @@ interface ProductModalProps {
 }
 
 const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
-  // Using the updated Product type which now includes description and tags
   const [formData, setFormData] = useState<Omit<Product, 'id' | 'lastUpdated'>>({
     sku: '',
     name: '',
     category: 'Produce',
     price: 0,
     quantity: 0,
-    minThreshold: 0,
+    minThreshold: 5,
     expiryDate: '',
     description: '',
     tags: []
@@ -40,7 +39,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
         tags: initialData.tags || []
       });
       setTagsString((initialData.tags || []).join(', '));
-    } else {
+    } else if (isOpen) {
       setFormData({
         sku: '',
         name: '',
@@ -56,7 +55,8 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
     }
   }, [initialData, isOpen]);
 
-  const handleSubmit = () => {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
     const processedTags = tagsString
       .split(',')
       .map(t => t.trim())
@@ -71,111 +71,121 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl p-6 my-8">
-        <h2 className="text-xl font-bold text-slate-800 mb-6">
-          {initialData ? 'Edit Product' : 'Add New Product'}
-        </h2>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300 overflow-y-auto">
+      <div className="w-full max-w-xl p-10 my-8 bg-white rounded-[3rem] shadow-2xl relative animate-in zoom-in-95 duration-300">
+        <button onClick={onClose} className="absolute top-8 right-8 text-slate-400 hover:text-slate-600 transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
         
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Product Name</label>
-            <input 
-              type="text" 
-              className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              value={formData.name}
-              onChange={e => setFormData({...formData, name: e.target.value})}
-              placeholder="e.g. Fuji Apples"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">SKU</label>
-              <input 
-                type="text" 
-                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.sku}
-                onChange={e => setFormData({...formData, sku: e.target.value})}
-                placeholder="SKU-123"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Category</label>
-              <select 
-                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.category}
-                onChange={e => setFormData({...formData, category: e.target.value as Category})}
-              >
-                {CATEGORIES.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Price (₦)</label>
-              <input 
-                type="number" 
-                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.price}
-                onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Quantity</label>
-              <input 
-                type="number" 
-                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.quantity}
-                onChange={e => setFormData({...formData, quantity: parseInt(e.target.value) || 0})}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Min. Alert</label>
-              <input 
-                type="number" 
-                className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                value={formData.minThreshold}
-                onChange={e => setFormData({...formData, minThreshold: parseInt(e.target.value) || 0})}
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
-            <textarea 
-              className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none h-24"
-              value={formData.description || ''}
-              onChange={e => setFormData({...formData, description: e.target.value})}
-              placeholder="Enter product details..."
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Tags (comma separated)</label>
-            <input 
-              type="text" 
-              className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              value={tagsString}
-              onChange={e => setTagsString(e.target.value)}
-              placeholder="e.g. organic, fresh, dairy"
-            />
-          </div>
+        <div className="mb-10">
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">
+            {initialData ? 'Update Product' : 'Add New Item'}
+          </h2>
+          <p className="mt-2 text-xs font-bold tracking-widest text-slate-400 uppercase">Product Catalog Master</p>
         </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Name</label>
+                <input 
+                  type="text" 
+                  required
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all placeholder:text-slate-300"
+                  value={formData.name}
+                  onChange={e => setFormData({...formData, name: e.target.value})}
+                  placeholder="e.g. Fuji Apples"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">SKU Code</label>
+                <input 
+                  type="text" 
+                  required
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all placeholder:text-slate-300"
+                  value={formData.sku}
+                  onChange={e => setFormData({...formData, sku: e.target.value.toUpperCase()})}
+                  placeholder="PR-100"
+                />
+              </div>
+            </div>
 
-        <div className="mt-8 flex gap-3 justify-end">
-          <button 
-            onClick={onClose}
-            className="px-6 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button 
-            onClick={handleSubmit}
-            className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
-          >
-            {initialData ? 'Update Product' : 'Save Product'}
-          </button>
-        </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
+                <select 
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
+                  value={formData.category}
+                  onChange={e => setFormData({...formData, category: e.target.value as Category})}
+                >
+                  {CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit Price (₦)</label>
+                <input 
+                  type="number" 
+                  required
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
+                  value={formData.price}
+                  onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Stock Quantity</label>
+                <input 
+                  type="number" 
+                  required
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
+                  value={formData.quantity}
+                  onChange={e => setFormData({...formData, quantity: parseInt(e.target.value) || 0})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Low Stock Alert</label>
+                <input 
+                  type="number" 
+                  required
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
+                  value={formData.minThreshold}
+                  onChange={e => setFormData({...formData, minThreshold: parseInt(e.target.value) || 0})}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Description</label>
+              <textarea 
+                className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all resize-none h-32"
+                value={formData.description || ''}
+                onChange={e => setFormData({...formData, description: e.target.value})}
+                placeholder="Details about product sourcing, quality, or usage..."
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-4 pt-4">
+            <button 
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-5 text-sm font-black text-slate-500 uppercase tracking-widest rounded-3xl hover:bg-slate-50 transition-all"
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit"
+              className="flex-[2] py-5 text-sm font-black text-white uppercase tracking-widest bg-blue-600 shadow-xl shadow-blue-600/30 rounded-3xl hover:bg-blue-700 transition-all active:scale-95"
+            >
+              {initialData ? 'Save Changes' : 'Create Product'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
