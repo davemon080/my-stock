@@ -163,6 +163,17 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setConfig(prev => ({ ...prev, logoUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const generateSku = (name: string, seq: number) => {
     const clean = name.replace(/[^a-zA-Z]/g, '');
     const first = clean.charAt(0).toUpperCase() || 'P';
@@ -371,16 +382,6 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Search Bar for Register / Inventory - Sticky below header on mobile */}
-        {(activeTab === 'Register' || activeTab === 'Inventory') && (
-          <div className="px-4 py-3 sm:px-10 sm:py-6 bg-white/50 border-b border-slate-100 lg:hidden shrink-0">
-            <div className="relative group">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors"><ICONS.Search /></span>
-              <input type="text" placeholder="Filter items..." className="w-full pl-12 pr-4 py-2.5 text-sm font-bold bg-white border-2 border-slate-100 rounded-xl focus:border-blue-600 outline-none transition-all shadow-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-            </div>
-          </div>
-        )}
-
         {/* Dynamic Page Rendering */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-10">
           {activeTab === 'Dashboard' && (
@@ -412,9 +413,6 @@ const App: React.FC = () => {
 
           {activeTab === 'Inventory' && (
              <div className="max-w-7xl mx-auto">
-                <div className="lg:hidden mb-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 text-center">Tap items to manage inventory</p>
-                </div>
                 <div className="bg-white rounded-[1.5rem] sm:rounded-[3rem] border border-slate-200 overflow-hidden shadow-sm">
                    <div className="overflow-x-auto custom-scrollbar">
                      <table className="w-full text-left min-w-[600px] sm:min-w-[900px]">
@@ -459,10 +457,6 @@ const App: React.FC = () => {
 
           {activeTab === 'Register' && (
             <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-               <div className="hidden lg:block relative group">
-                 <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors"><ICONS.Search /></span>
-                 <input type="text" placeholder="Search catalog for checkout..." className="w-full pl-16 pr-8 py-5 text-md font-bold bg-white border-2 border-transparent rounded-[2.5rem] focus:border-blue-600 outline-none transition-all shadow-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-               </div>
                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6">
                  {filteredProducts.map(p => (
                    <button key={p.id} disabled={p.quantity <= 0} onClick={() => addToCart(p)} className="p-4 sm:p-8 bg-white border-2 border-transparent rounded-[2rem] sm:rounded-[3.5rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-95 shadow-sm overflow-hidden">
@@ -471,9 +465,6 @@ const App: React.FC = () => {
                       <p className="text-[8px] sm:text-[10px] font-bold text-slate-400 mb-3 sm:mb-6">{p.sku}</p>
                       <div className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl text-[8px] sm:text-[10px] font-black w-fit ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>{p.quantity} In Stock</div>
                       {p.quantity <= 0 && <div className="absolute inset-0 bg-white/60 flex items-center justify-center font-black text-rose-600 uppercase tracking-widest text-[10px] sm:text-xs rounded-[2rem] sm:rounded-[3.5rem]">OUT</div>}
-                      <div className="absolute right-3 bottom-3 sm:right-6 sm:bottom-6 p-2 sm:p-3 bg-blue-600 text-white rounded-lg sm:rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity hidden sm:block">
-                        <ICONS.Plus />
-                      </div>
                    </button>
                  ))}
                </div>
@@ -482,6 +473,7 @@ const App: React.FC = () => {
 
           {activeTab === 'Settings' && currentUser.role === 'Admin' && (
              <div className="max-w-4xl mx-auto space-y-6 sm:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* Store Identity */}
                 <div className="bg-white rounded-[1.5rem] sm:rounded-[3rem] p-6 sm:p-10 border border-slate-200 shadow-sm">
                    <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 uppercase tracking-tight"><span className="p-2 sm:p-3 bg-blue-100 text-blue-600 rounded-xl sm:rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>Store Profile</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
@@ -490,17 +482,38 @@ const App: React.FC = () => {
                         <input type="text" className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl outline-none font-bold focus:border-blue-600 text-sm" value={config.supermarketName} onChange={e => setConfig({ ...config, supermarketName: e.target.value })} />
                       </div>
                       <div className="space-y-1 sm:space-y-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Logo URL</label>
-                        <input type="text" placeholder="https://..." className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl outline-none font-bold focus:border-blue-600 text-sm" value={config.logoUrl} onChange={e => setConfig({ ...config, logoUrl: e.target.value })} />
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Store Logo</label>
+                        <div className="flex flex-col gap-4">
+                           {config.logoUrl && (
+                             <div className="relative w-20 h-20 group">
+                                <img src={config.logoUrl} className="w-full h-full object-cover rounded-xl border-2 border-slate-100" />
+                                <button onClick={() => setConfig({...config, logoUrl: ''})} className="absolute -top-2 -right-2 p-1 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                             </div>
+                           )}
+                           <div className="relative">
+                              <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" id="logo-upload" />
+                              <label htmlFor="logo-upload" className="inline-flex items-center gap-2 px-6 py-3.5 bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all text-[10px] font-black uppercase tracking-widest text-slate-500">
+                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                                 Upload Logo Image
+                              </label>
+                           </div>
+                           <p className="text-[8px] font-bold text-slate-400">PNG or JPG recommended. File size &lt; 2MB.</p>
+                        </div>
                       </div>
                    </div>
                 </div>
 
                 <div className="bg-white rounded-[1.5rem] sm:rounded-[3rem] p-6 sm:p-10 border border-slate-200 shadow-sm">
-                   <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 uppercase tracking-tight"><span className="p-2 sm:p-3 bg-amber-100 text-amber-600 rounded-xl sm:rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>Security</h3>
-                   <div className="space-y-1 sm:space-y-2">
-                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Master Password</label>
-                      <input type="password" placeholder="Change Admin Password" className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl outline-none font-bold focus:border-blue-600 text-sm" value={config.adminPassword} onChange={e => setConfig({ ...config, adminPassword: e.target.value })} />
+                   <h3 className="text-xl sm:text-2xl font-black mb-6 sm:mb-8 flex items-center gap-3 uppercase tracking-tight"><span className="p-2 sm:p-3 bg-amber-100 text-amber-600 rounded-xl sm:rounded-2xl"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>Change Admin Password</h3>
+                   <div className="space-y-4">
+                      <div className="space-y-1 sm:space-y-2">
+                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">New Admin Password</label>
+                         <input type="password" placeholder="Enter New Password" className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl outline-none font-bold focus:border-blue-600 text-sm" value={config.adminPassword} onChange={e => setConfig({ ...config, adminPassword: e.target.value })} />
+                      </div>
+                      <p className="text-[9px] font-bold text-slate-400 italic bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-start gap-3">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-blue-600 shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></svg>
+                         Warning: Changing the master password will take effect immediately. Ensure you keep it secure.
+                      </p>
                    </div>
                 </div>
 
@@ -586,9 +599,6 @@ const App: React.FC = () => {
                              </td>
                           </tr>
                         ))}
-                        {filteredTransactions.length === 0 && (
-                          <tr><td colSpan={5} className="py-10 text-center text-slate-300 italic">No sales found for this period.</td></tr>
-                        )}
                      </tbody>
                    </table>
                 </div>
@@ -656,7 +666,6 @@ const App: React.FC = () => {
                        <button onClick={() => removeFromCart(item.id)} className="p-2 text-slate-300 hover:text-rose-500 transition-colors shrink-0"><ICONS.Trash /></button>
                     </div>
                   ))}
-                  {cart.length === 0 && <p className="text-center py-20 text-slate-300 italic font-bold">Your basket is currently empty.</p>}
                </div>
                <div className="p-6 sm:p-10 bg-slate-50 border-t flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-10 shrink-0">
                   <div className="text-center sm:text-left">
@@ -669,7 +678,7 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Receipt Display Overlay - Improved responsiveness */}
+        {/* Receipt Display Overlay */}
         {receiptToShow && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl animate-in fade-in duration-300">
             <div className="w-full max-w-sm bg-white rounded-[2rem] sm:rounded-[3rem] p-6 sm:p-10 shadow-2xl animate-in zoom-in-95 duration-300 flex flex-col max-h-[90vh]">
