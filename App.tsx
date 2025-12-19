@@ -11,8 +11,6 @@ interface CartItem extends Product {
   cartQuantity: number;
 }
 
-type DateFilter = 'Today' | '7D' | '30D' | 'All';
-
 interface Toast {
   id: number;
   message: string;
@@ -115,9 +113,9 @@ const App: React.FC = () => {
     try {
       const result = await getInventoryInsights(activeBranchProducts);
       setAiInsights(result);
-      showToast("Analysis Complete", "success");
+      showToast("Strategy Updated", "success");
     } catch (e) {
-      showToast("Assistant is busy", "error");
+      showToast("Advisor Unavailable", "error");
     } finally {
       setIsAnalyzing(false);
     }
@@ -277,6 +275,14 @@ const App: React.FC = () => {
 
   const fuse = useMemo(() => new Fuse(activeBranchProducts, { keys: ['name', 'sku'], threshold: 0.3 }), [activeBranchProducts]);
   const filteredProducts = useMemo(() => searchTerm ? fuse.search(searchTerm).map(r => r.item) : activeBranchProducts, [activeBranchProducts, searchTerm, fuse]);
+
+  const lowStockItems = useMemo(() => 
+    activeBranchProducts
+      .filter(p => p.quantity <= p.minThreshold)
+      .sort((a, b) => a.quantity - b.quantity)
+      .slice(0, 5),
+    [activeBranchProducts]
+  );
 
   if (isInitializing) {
     return (
@@ -465,41 +471,99 @@ const App: React.FC = () => {
                 <StatCard title="Sales Today" value={`₦${activeBranchTransactions.filter(t => new Date(t.timestamp).toDateString() === new Date().toDateString()).reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="emerald" />
               </div>
 
-              <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between mb-8">
-                   <h3 className="text-xl font-black uppercase flex items-center gap-3">
-                     <span className="p-3 bg-blue-600 text-white rounded-2xl"><ICONS.Dashboard /></span>
-                     Smart Recommendations
-                   </h3>
-                   <button 
-                     onClick={handleAiAnalysis} 
-                     disabled={isAnalyzing}
-                     className={`px-8 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2`}
-                   >
-                     {isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
-                     {isAnalyzing ? "Analyzing..." : "Update Advice"}
-                   </button>
-                </div>
-
-                {aiInsights ? (
-                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="p-8 bg-blue-50/50 rounded-[2rem] text-sm text-slate-700 italic border-l-4 border-blue-600 mb-8 leading-relaxed shadow-inner">
-                      "{aiInsights.insight}"
+              {/* Pro Intelligence Hub */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                 {/* Stock Monitor */}
+                 <div className="lg:col-span-1 bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm flex flex-col">
+                    <div className="mb-8">
+                       <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-1">Live Inventory Health</h3>
+                       <p className="text-xs font-bold text-slate-500">Items requiring restock attention</p>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                       {aiInsights.recommendations.map((rec, i) => (
-                         <div key={i} className="p-6 bg-white border border-slate-100 rounded-3xl flex items-center gap-4 hover:border-blue-500 transition-colors shadow-sm">
-                            <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center font-black shrink-0">{i+1}</div>
-                            <span className="font-bold text-slate-600 text-xs uppercase tracking-wider">{rec}</span>
+                    
+                    <div className="space-y-6 flex-1">
+                       {lowStockItems.length > 0 ? lowStockItems.map(item => (
+                         <div key={item.id} className="group">
+                            <div className="flex justify-between items-center mb-2">
+                               <span className="text-[11px] font-black text-slate-900 uppercase truncate max-w-[140px]">{item.name}</span>
+                               <span className="text-[10px] font-black text-amber-600">{item.quantity} Left</span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                               <div 
+                                 className="h-full bg-amber-500 rounded-full transition-all duration-1000"
+                                 style={{ width: `${Math.max(10, (item.quantity / (item.minThreshold || 1)) * 100)}%` }}
+                               ></div>
+                            </div>
                          </div>
-                       ))}
+                       )) : (
+                         <div className="h-full flex flex-col items-center justify-center text-center py-10">
+                            <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-4">
+                               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                            </div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">Stock levels are<br/>optimal across node</p>
+                         </div>
+                       )}
                     </div>
-                  </div>
-                ) : (
-                  <div className="py-20 text-center text-slate-300 font-black uppercase tracking-[0.2em] italic border-2 border-dashed rounded-[3rem] border-slate-100">
-                    Click "Update Advice" for AI suggestions
-                  </div>
-                )}
+                    
+                    <button 
+                      onClick={() => setActiveTab('Inventory')}
+                      className="mt-10 w-full py-4 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
+                    >
+                      Manage Full List
+                    </button>
+                 </div>
+
+                 {/* Rebranded AI Consultant */}
+                 <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-10 shadow-2xl relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-12 pointer-events-none opacity-10 group-hover:opacity-20 transition-opacity">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="0.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
+                    </div>
+                    
+                    <div className="relative z-10 h-full flex flex-col">
+                       <div className="flex items-center justify-between mb-12">
+                          <div className="flex items-center gap-4">
+                             <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-blue-600/30">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+                             </div>
+                             <div>
+                                <h3 className="text-lg font-black text-white uppercase tracking-tight">Strategy Consultant</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Powered by Gemini AI</p>
+                             </div>
+                          </div>
+                          
+                          <button 
+                            onClick={handleAiAnalysis} 
+                            disabled={isAnalyzing}
+                            className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/10 flex items-center gap-2 disabled:opacity-50"
+                          >
+                             {isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Consult"}
+                          </button>
+                       </div>
+
+                       <div className="flex-1">
+                          {aiInsights ? (
+                             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="mb-8 p-6 bg-white/5 rounded-3xl border border-white/5">
+                                   <p className="text-slate-300 text-sm italic leading-relaxed">
+                                      "{aiInsights.insight}"
+                                   </p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                   {aiInsights.recommendations.map((rec, i) => (
+                                      <div key={i} className="p-4 bg-white/5 border border-white/5 rounded-2xl flex items-start gap-3 hover:bg-white/10 transition-colors">
+                                         <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-black text-[10px] shrink-0">{i+1}</div>
+                                         <span className="text-[11px] font-bold text-slate-300 leading-snug">{rec}</span>
+                                      </div>
+                                   ))}
+                                </div>
+                             </div>
+                          ) : (
+                             <div className="h-48 flex flex-col items-center justify-center text-center opacity-30 border-2 border-dashed border-white/10 rounded-3xl">
+                                <p className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Initialize Strategy Node</p>
+                             </div>
+                          )}
+                       </div>
+                    </div>
+                 </div>
               </div>
             </div>
           )}
