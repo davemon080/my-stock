@@ -21,7 +21,13 @@ interface Toast {
 
 const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
-  const [currentUser, setCurrentUser] = useState<{ role: UserRole; name: string; branchId: string } | null>(null);
+  
+  // Persistent Session State
+  const [currentUser, setCurrentUser] = useState<{ role: UserRole; name: string; branchId: string } | null>(() => {
+    const savedSession = localStorage.getItem('supermart_session');
+    return savedSession ? JSON.parse(savedSession) : null;
+  });
+
   const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register' | 'Transactions' | 'Revenue' | 'Settings'>('Dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isBasketOpen, setIsBasketOpen] = useState(false);
@@ -37,7 +43,7 @@ const App: React.FC = () => {
     sellers: [],
     branches: []
   });
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+  const [selectedBranchId, setSelectedBranchId] = useState<string>(currentUser?.branchId || '');
   const [activeBranchProducts, setActiveBranchProducts] = useState<Product[]>([]);
   const [activeBranchTransactions, setActiveBranchTransactions] = useState<Transaction[]>([]);
   const [aiInsights, setAiInsights] = useState<{ insight: string; recommendations: string[] } | null>(null);
@@ -48,6 +54,15 @@ const App: React.FC = () => {
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
+
+  // Sync session to localStorage
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('supermart_session', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('supermart_session');
+    }
+  }, [currentUser]);
 
   // Initial Load
   const initApp = async () => {
@@ -60,8 +75,13 @@ const App: React.FC = () => {
       ]);
       const fullConfig = { ...config, ...appConfig, branches, sellers };
       setConfig(fullConfig);
-      if (branches.length > 0) {
+      
+      // If no branch selected but we have branches, pick first
+      if (!selectedBranchId && branches.length > 0) {
         setSelectedBranchId(branches[0].id);
+      } else if (selectedBranchId && !branches.find(b => b.id === selectedBranchId)) {
+        // Handle case where session branch was deleted
+        setSelectedBranchId(branches[0]?.id || '');
       }
     } catch (err) {
       showToast("Database synchronization failed", "error");
@@ -120,7 +140,9 @@ const App: React.FC = () => {
     setLoginError('');
     if (loginRole === 'Admin') {
       if (loginPassword === config.adminPassword) {
-        setCurrentUser({ role: 'Admin', name: 'Super Admin', branchId: config.branches[0]?.id || '' });
+        const adminUser = { role: 'Admin' as UserRole, name: 'Super Admin', branchId: config.branches[0]?.id || '' };
+        setCurrentUser(adminUser);
+        setSelectedBranchId(adminUser.branchId);
         showToast("Access Granted", "success");
       } else {
         setLoginError('Invalid Pin');
@@ -128,13 +150,21 @@ const App: React.FC = () => {
     } else {
       const seller = config.sellers.find(s => s.email === loginEmail && s.password === loginPassword);
       if (seller) {
-        setCurrentUser({ role: 'Seller', name: seller.name, branchId: seller.branchId });
-        setSelectedBranchId(seller.branchId);
+        const staffUser = { role: 'Seller' as UserRole, name: seller.name, branchId: seller.branchId };
+        setCurrentUser(staffUser);
+        setSelectedBranchId(staffUser.branchId);
         showToast(`Welcome ${seller.name}`, "success");
       } else {
         setLoginError('Invalid Staff Credentials');
       }
     }
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setCart([]);
+    setAiInsights(null);
+    showToast("Signed out successfully", "info");
   };
 
   const handleSaveProduct = async (data: Omit<Product, 'id' | 'lastUpdated' | 'sku'>) => {
@@ -306,7 +336,7 @@ const App: React.FC = () => {
       {/* Confirmation Overlay */}
       {confirmModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-           <div className="w-full max-sm bg-white rounded-[2.5rem] p-10 shadow-2xl">
+           <div className="w-full max-w-sm bg-white rounded-[2.5rem] p-10 shadow-2xl">
               <h3 className="text-xl font-black text-slate-900 mb-4 uppercase">{confirmModal.title}</h3>
               <p className="text-sm font-bold text-slate-500 mb-10 leading-relaxed">{confirmModal.message}</p>
               <div className="flex gap-4">
@@ -356,7 +386,7 @@ const App: React.FC = () => {
               <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mb-1">Authenticated</p>
               <p className="text-sm font-black truncate">{currentUser.name}</p>
            </div>
-           <button onClick={() => setCurrentUser(null)} className="w-full py-3 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-500 hover:text-white transition-all">Logout</button>
+           <button onClick={handleLogout} className="w-full py-3 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-500 hover:text-white transition-all">Logout</button>
         </div>
       </aside>
 
@@ -487,6 +517,11 @@ const App: React.FC = () => {
                               </td>
                            </tr>
                          ))}
+                         {filteredProducts.length === 0 && (
+                           <tr>
+                             <td colSpan={5} className="py-20 text-center text-slate-300 font-black uppercase tracking-widest italic">Inventory Registry Empty</td>
+                           </tr>
+                         )}
                       </tbody>
                    </table>
                 </div>
@@ -505,6 +540,7 @@ const App: React.FC = () => {
                       <div className="text-xl font-black text-slate-900 mb-2 leading-none">₦{p.price.toLocaleString()}</div>
                       <h4 className="text-xs font-black text-slate-800 mb-1 leading-tight line-clamp-2 min-h-[1.5rem] uppercase">{p.name}</h4>
                       <div className={`mt-4 px-2 py-0.5 rounded-lg text-[8px] font-black w-fit ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>{p.quantity} In Stock</div>
+                      {p.quantity <= 0 && <div className="absolute inset-0 bg-white/70 flex items-center justify-center font-black text-rose-600 uppercase tracking-widest text-[10px]">OUT OF STOCK</div>}
                    </button>
                  ))}
                </div>
@@ -516,7 +552,7 @@ const App: React.FC = () => {
                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="relative w-full max-w-md">
                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                     <input type="text" placeholder="Search receipts..." className="w-full pl-12 pr-6 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold shadow-sm" value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
+                     <input type="text" placeholder="Search receipts by ID or items..." className="w-full pl-12 pr-6 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold shadow-sm" value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
                   </div>
                </div>
                <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-sm overflow-x-auto">
@@ -534,14 +570,19 @@ const App: React.FC = () => {
                           t.id.toLowerCase().includes(searchTermTransactions.toLowerCase()) ||
                           t.items.some(i => i.name.toLowerCase().includes(searchTermTransactions.toLowerCase()))
                         ).map(t => (
-                          <tr key={t.id} className="hover:bg-blue-50/10">
+                          <tr key={t.id} className="hover:bg-blue-50/10 transition-colors">
                              <td className="px-10 py-6 font-black text-slate-900">#{t.id}</td>
                              <td className="px-10 py-6 text-xs text-slate-500 font-bold">{new Date(t.timestamp).toLocaleString()}</td>
                              <td className="px-10 py-6 font-black text-blue-600">₦{t.total.toLocaleString()}</td>
                              <td className="px-10 py-6 text-right">
-                                <button onClick={() => setReceiptToShow(t)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-emerald-600 hover:text-white transition-all active:scale-95">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
-                                </button>
+                                <div className="flex justify-end gap-2">
+                                  <button onClick={() => setReceiptToShow(t)} title="View Receipt" className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition-all active:scale-95">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                  </button>
+                                  <button onClick={() => { setReceiptToShow(t); setTimeout(() => window.print(), 200); }} title="Direct Print" className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-emerald-600 hover:text-white transition-all active:scale-95">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
+                                  </button>
+                                </div>
                              </td>
                           </tr>
                         ))}
@@ -770,29 +811,68 @@ const App: React.FC = () => {
                
                <div className="flex-1 p-4 sm:p-8 overflow-y-auto custom-scrollbar space-y-4 bg-slate-50/30">
                   {cart.map(item => (
-                    <div key={item.id} className="p-5 sm:p-6 bg-white border border-slate-100 rounded-[2rem] flex flex-col sm:flex-row items-start sm:items-center gap-4 shadow-sm">
+                    <div key={item.id} className="p-5 sm:p-6 bg-white border border-slate-100 rounded-[2rem] flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 shadow-sm hover:shadow-md transition-shadow">
                        <div className="flex-1 min-w-0 w-full">
                           <p className="text-base sm:text-lg font-black uppercase text-slate-900 truncate leading-tight">{item.name}</p>
                           <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">SKU: {item.sku}</p>
                        </div>
+                       
                        <div className="flex items-center justify-between w-full sm:w-auto gap-4">
-                          <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-2xl border">
-                             <button onClick={() => setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: Math.max(0, i.cartQuantity - 1) } : i).filter(i => i.cartQuantity > 0))} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black">-</button>
-                             <span className="w-10 text-center font-black">{item.cartQuantity}</span>
-                             <button onClick={() => setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: i.cartQuantity + 1 } : i))} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black">+</button>
+                          <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-2xl border border-slate-100">
+                             <button 
+                                onClick={() => { 
+                                  setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: Math.max(0, i.cartQuantity - 1) } : i).filter(i => i.cartQuantity > 0));
+                                }} 
+                                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black text-slate-900 hover:text-blue-600 transition-colors shadow-sm active:scale-90"
+                             >-</button>
+                             <span className="w-10 text-center font-black text-slate-900">{item.cartQuantity}</span>
+                             <button 
+                                onClick={() => {
+                                  setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: i.cartQuantity + 1 } : i));
+                                }} 
+                                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black text-slate-900 hover:text-blue-600 transition-colors shadow-sm active:scale-90"
+                             >+</button>
                           </div>
-                          <span className="font-black text-xl text-slate-900 min-w-[120px] text-right">₦{(item.price * item.cartQuantity).toLocaleString()}</span>
-                          <button onClick={() => setCart(prev => prev.filter(i => i.id !== item.id))} className="p-3 text-slate-300 hover:text-rose-500"><ICONS.Trash /></button>
+                          
+                          <div className="text-right min-w-[120px]">
+                            <p className="text-[9px] font-black text-slate-400 uppercase mb-0.5 sm:hidden">Subtotal</p>
+                            <span className="font-black text-xl text-slate-900">₦{(item.price * item.cartQuantity).toLocaleString()}</span>
+                          </div>
+                          
+                          <button 
+                            onClick={() => setCart(prev => prev.filter(i => i.id !== item.id))} 
+                            className="p-3 text-slate-300 hover:text-rose-500 transition-colors active:scale-90"
+                            title="Remove item"
+                          >
+                            <ICONS.Trash />
+                          </button>
                        </div>
                     </div>
                   ))}
+                  {cart.length === 0 && (
+                    <div className="py-32 flex flex-col items-center justify-center text-center">
+                      <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-6">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                      </div>
+                      <p className="text-slate-400 font-black uppercase tracking-[0.2em] italic text-sm">Session Basket Empty</p>
+                      <button onClick={() => { setIsBasketOpen(false); setActiveTab('Register'); }} className="mt-8 text-blue-600 font-black text-[10px] uppercase tracking-widest hover:underline underline-offset-8">Return to Catalog</button>
+                    </div>
+                  )}
                </div>
+               
                <div className="p-6 sm:p-10 bg-white border-t flex flex-col sm:flex-row items-center sm:items-end justify-between gap-8 shrink-0">
                   <div className="text-center sm:text-left w-full sm:w-auto">
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">Authorization Amount</p>
                     <p className="text-4xl sm:text-5xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p>
                   </div>
-                  <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-16 py-6 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-2xl hover:bg-blue-600 active:scale-95 transition-all disabled:opacity-20 shadow-blue-600/10">Authorize Payment</button>
+                  <button 
+                    onClick={completeCheckout} 
+                    disabled={cart.length === 0} 
+                    className="w-full sm:w-auto px-16 py-6 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-2xl hover:bg-blue-600 active:scale-95 transition-all disabled:opacity-20 shadow-blue-600/10 flex items-center justify-center gap-3"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
+                    Authorize Payment
+                  </button>
                </div>
             </div>
           </div>
