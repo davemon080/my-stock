@@ -1,10 +1,11 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Product } from "../types";
+import { Product } from "../types.ts";
 
 export const getInventoryInsights = async (products: Product[]) => {
-  // Use named parameter and assume process.env.API_KEY is provided
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  // Use named parameter and ensure safe process.env access
+  const apiKey = (typeof process !== 'undefined' && process.env?.API_KEY) || '';
+  const ai = new GoogleGenAI({ apiKey });
   
   const inventoryContext = products.map(p => ({
     name: p.name,
@@ -45,14 +46,13 @@ export const getInventoryInsights = async (products: Product[]) => {
       }
     });
 
-    // Access .text property directly from GenerateContentResponse
     const jsonStr = response.text?.trim() || "{}";
     return JSON.parse(jsonStr);
   } catch (error) {
     console.error("Gemini Error:", error);
     return {
-      insight: "Failed to connect to AI. Please try again later.",
-      recommendations: ["Check manual stock levels", "Monitor expiry dates manually"]
+      insight: "Failed to connect to AI. Please check your API key configuration.",
+      recommendations: ["Monitor stock levels manually", "Audit item expiry dates"]
     };
   }
 };

@@ -1,12 +1,29 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Product, InventoryStats, AIResponse, UserRole, Transaction } from './types';
-import { INITIAL_PRODUCTS, CATEGORIES, ICONS } from './constants';
-import DashboardCard from './components/DashboardCard';
-import ProductModal from './components/ProductModal';
-import { getInventoryInsights } from './services/geminiService';
+import { Product, InventoryStats, AIResponse, UserRole, Transaction } from './types.ts';
+import { INITIAL_PRODUCTS, CATEGORIES, ICONS } from './constants.tsx';
+import DashboardCard from './components/DashboardCard.tsx';
+import ProductModal from './components/ProductModal.tsx';
+import { getInventoryInsights } from './services/geminiService.ts';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import Fuse from 'fuse.js';
+
+interface SidebarLinkProps {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+const SidebarLink: React.FC<SidebarLinkProps> = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${active ? 'bg-white/10 text-white font-bold' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+  >
+    <span className={`transition-transform duration-300 ${active ? 'scale-110' : ''}`}>{icon}</span>
+    <span className="text-sm">{label}</span>
+  </button>
+);
 
 const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>('Admin');
@@ -22,10 +39,14 @@ const App: React.FC = () => {
 
   // Persistence
   useEffect(() => {
-    const savedProducts = localStorage.getItem('sm_products_v3');
-    const savedTransactions = localStorage.getItem('sm_transactions_v3');
-    if (savedProducts) setProducts(JSON.parse(savedProducts));
-    if (savedTransactions) setTransactions(JSON.parse(savedTransactions));
+    try {
+      const savedProducts = localStorage.getItem('sm_products_v3');
+      const savedTransactions = localStorage.getItem('sm_transactions_v3');
+      if (savedProducts) setProducts(JSON.parse(savedProducts));
+      if (savedTransactions) setTransactions(JSON.parse(savedTransactions));
+    } catch (e) {
+      console.warn("Could not load from localStorage", e);
+    }
   }, []);
 
   useEffect(() => {
@@ -117,10 +138,9 @@ const App: React.FC = () => {
       price: product.price * qty,
       timestamp: new Date().toISOString()
     };
-    setTransactions(prev => [newTransaction, ...prev].slice(0, 100)); // Keep last 100
+    setTransactions(prev => [newTransaction, ...prev].slice(0, 100));
   };
 
-  // Add missing function to handle AI report generation
   const generateAIReport = async () => {
     setIsAiLoading(true);
     try {
@@ -175,7 +195,6 @@ const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top bar */}
         <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
           <h2 className="text-xl font-bold text-slate-800">{activeTab}</h2>
           <div className="flex items-center gap-4">
@@ -200,9 +219,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Dynamic Content */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          
           {activeTab === 'Dashboard' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -216,9 +233,6 @@ const App: React.FC = () => {
                 <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="font-bold text-slate-800">Inventory Mix</h3>
-                    <select className="text-xs font-bold text-slate-400 uppercase bg-transparent border-none outline-none">
-                      <option>By Category</option>
-                    </select>
                   </div>
                   <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
@@ -411,9 +425,6 @@ const App: React.FC = () => {
                      </tbody>
                    </table>
                 </div>
-                <div className="mt-6 flex justify-end">
-                   <p className="text-xs font-bold text-slate-400">Press <kbd className="bg-slate-100 px-1 border rounded">Enter</kbd> to jump rows (Excel shortcut simulation ready)</p>
-                </div>
              </div>
           )}
 
@@ -427,35 +438,8 @@ const App: React.FC = () => {
                            {role[0]}
                         </div>
                         <div>
-                           <p className="font-bold text-slate-800">Branch User #{Math.floor(Math.random()*1000)}</p>
+                           <p className="font-bold text-slate-800">Branch User</p>
                            <p className="text-xs text-slate-400">{role} Account</p>
-                        </div>
-                     </div>
-                     <button className="w-full py-3 border-2 border-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all">
-                        Update Security Credentials
-                     </button>
-                  </div>
-               </div>
-               
-               <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
-                  <h3 className="font-bold text-slate-800 mb-6">Inventory Config</h3>
-                  <div className="space-y-6">
-                     <div className="flex items-center justify-between">
-                        <div>
-                           <p className="font-bold text-sm">Low Stock Alerts</p>
-                           <p className="text-xs text-slate-400">Notify when stock hits threshold</p>
-                        </div>
-                        <div className="w-12 h-6 bg-emerald-500 rounded-full relative">
-                           <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
-                        </div>
-                     </div>
-                     <div className="flex items-center justify-between">
-                        <div>
-                           <p className="font-bold text-sm">AI Auto-Restock</p>
-                           <p className="text-xs text-slate-400">Suggest reorders automatically</p>
-                        </div>
-                        <div className="w-12 h-6 bg-slate-200 rounded-full relative">
-                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full"></div>
                         </div>
                      </div>
                   </div>
@@ -474,22 +458,5 @@ const App: React.FC = () => {
     </div>
   );
 };
-
-interface SidebarLinkProps {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-const SidebarLink: React.FC<SidebarLinkProps> = ({ icon, label, active, onClick }) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${active ? 'bg-white/10 text-white font-bold' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-  >
-    <span className={`transition-transform duration-300 ${active ? 'scale-110' : ''}`}>{icon}</span>
-    <span className="text-sm">{label}</span>
-  </button>
-);
 
 export default App;
