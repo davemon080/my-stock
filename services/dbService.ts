@@ -148,13 +148,13 @@ export const db = {
     }
   },
 
-  // DANGER: Wipe All Data
+  // DANGER: Wipe All Data - Completely resets all tables
   async wipeAllData() {
-    // Truncate all operational tables
+    // Truncate all tables and restart sequences to ensure a clean slate
     await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config RESTART IDENTITY CASCADE`;
     
-    // Re-seed minimal required state
-    await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('SUPERMART PRO', '', 'admin')`;
-    await sql`INSERT INTO branches (id, name, location) VALUES ('br_main', 'Main Branch', 'Corporate HQ')`;
+    // Re-seed with essential initial data using understandable names
+    await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('MY STORE', '', 'admin')`;
+    await sql`INSERT INTO branches (id, name, location) VALUES ('br_main', 'Main Store', 'Headquarters')`;
   }
 };
