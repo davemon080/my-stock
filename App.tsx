@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Product, UserRole, InventoryStats, Transaction } from './types.ts';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Product, UserRole, InventoryStats, Transaction, TransactionItem } from './types.ts';
 import { INITIAL_PRODUCTS, ICONS } from './constants.tsx';
 import Fuse from 'fuse.js';
 import ProductModal from './components/ProductModal.tsx';
@@ -12,9 +12,10 @@ interface CartItem extends Product {
 
 const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>('Seller');
-  const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register'>('Dashboard');
+  const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register' | 'Transactions'>('Dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isBasketOpen, setIsBasketOpen] = useState(false);
+  const [receiptToShow, setReceiptToShow] = useState<Transaction | null>(null);
   
   // Admin Login State
   const [isLoginOverlayOpen, setIsLoginOverlayOpen] = useState(false);
@@ -23,12 +24,12 @@ const App: React.FC = () => {
 
   // Data Persistence
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('sm_inventory_v9');
+    const saved = localStorage.getItem('sm_inventory_v10');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
   
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('sm_transactions_v9');
+    const saved = localStorage.getItem('sm_transactions_v10');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -44,20 +45,20 @@ const App: React.FC = () => {
   });
   const [loadingInsights, setLoadingInsights] = useState(false);
 
-  // SKU Counter for automatic generation
+  // SKU Counter
   const [skuCounter, setSkuCounter] = useState(() => {
-    const saved = localStorage.getItem('sm_sku_counter_v9');
+    const saved = localStorage.getItem('sm_sku_counter_v10');
     return saved ? parseInt(saved) : (products.length + 100);
   });
 
   // Persistence
   useEffect(() => {
-    localStorage.setItem('sm_inventory_v9', JSON.stringify(products));
-    localStorage.setItem('sm_sku_counter_v9', skuCounter.toString());
+    localStorage.setItem('sm_inventory_v10', JSON.stringify(products));
+    localStorage.setItem('sm_sku_counter_v10', skuCounter.toString());
   }, [products, skuCounter]);
 
   useEffect(() => {
-    localStorage.setItem('sm_transactions_v9', JSON.stringify(transactions));
+    localStorage.setItem('sm_transactions_v10', JSON.stringify(transactions));
   }, [transactions]);
 
   // AI Analysis
@@ -92,8 +93,14 @@ const App: React.FC = () => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     return transactions
-      .filter(tx => new Date(tx.timestamp) >= startOfDay)
-      .reduce((acc, tx) => acc + tx.price, 0);
+      .filter(tx => tx.type === 'SALE' && new Date(tx.timestamp) >= startOfDay)
+      .reduce((acc, tx) => acc + tx.total, 0);
+  }, [transactions]);
+
+  const totalSalesAllTime = useMemo(() => {
+    return transactions
+      .filter(tx => tx.type === 'SALE')
+      .reduce((acc, tx) => acc + tx.total, 0);
   }, [transactions]);
 
   // Search Logic
@@ -107,7 +114,6 @@ const App: React.FC = () => {
     return fuse.search(searchTerm).map(r => r.item);
   }, [products, searchTerm, fuse]);
 
-  // SKU Generation Logic
   const generateSku = (name: string, seq: number) => {
     const cleanName = name.replace(/[^a-zA-Z]/g, '');
     const first = cleanName.charAt(0).toUpperCase() || 'P';
@@ -116,7 +122,6 @@ const App: React.FC = () => {
     return `${first}${last}${num}`;
   };
 
-  // Cart Logic
   const addToCart = (product: Product) => {
     if (product.quantity <= 0) return;
     setCart(prev => {
@@ -149,26 +154,33 @@ const App: React.FC = () => {
   const completeCheckout = () => {
     if (cart.length === 0) return;
     const now = new Date().toISOString();
-    const newTransactions: Transaction[] = cart.map(item => ({
-      id: Math.random().toString(36).substr(2, 9),
+    
+    const transactionItems: TransactionItem[] = cart.map(item => ({
       productId: item.id,
-      productName: item.name,
-      type: 'SALE',
+      name: item.name,
+      sku: item.sku,
       quantity: item.cartQuantity,
-      price: item.price * item.cartQuantity,
-      timestamp: now
+      price: item.price
     }));
+
+    const newTransaction: Transaction = {
+      id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+      items: transactionItems,
+      total: cartTotal,
+      type: 'SALE',
+      timestamp: now
+    };
 
     setProducts(prev => prev.map(p => {
       const soldItem = cart.find(item => item.id === p.id);
       return soldItem ? { ...p, quantity: p.quantity - soldItem.cartQuantity, lastUpdated: now } : p;
     }));
 
-    setTransactions(prev => [...newTransactions, ...prev].slice(0, 100));
+    setTransactions(prev => [newTransaction, ...prev]);
+    setReceiptToShow(newTransaction);
     setCart([]);
     setSearchTerm('');
     setIsBasketOpen(false);
-    alert(`Checkout Successful! Total: ₦${cartTotal.toLocaleString()}`);
   };
 
   const handleAdminLogin = (e?: React.FormEvent) => {
@@ -208,14 +220,72 @@ const App: React.FC = () => {
   };
 
   const deleteProduct = (id: string) => {
-    if (window.confirm("Are you sure you want to delete this product?")) {
+    if (window.confirm("Delete this product?")) {
       setProducts(prev => prev.filter(p => p.id !== id));
       setCart(prev => prev.filter(item => item.id !== id));
     }
   };
 
+  const printReceipt = () => {
+    window.print();
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-['Plus_Jakarta_Sans']">
+      
+      {/* Receipt Modal */}
+      {receiptToShow && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-lg animate-in fade-in duration-300 print:bg-white print:p-0">
+          <div className="w-full max-w-sm bg-white rounded-[3rem] p-8 shadow-2xl flex flex-col items-center text-center relative animate-in zoom-in-95 duration-300 print:shadow-none print:p-4 print:rounded-none">
+            <button onClick={() => setReceiptToShow(null)} className="absolute top-6 right-6 text-slate-300 hover:text-slate-600 print:hidden">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-6 print:hidden">
+               <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
+            <h2 className="text-2xl font-black mb-1">SUPERMART</h2>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-8">Official Receipt</p>
+            
+            <div className="w-full space-y-3 mb-8 text-left border-y border-slate-100 py-6">
+                <div className="flex justify-between text-[11px] font-bold text-slate-500">
+                    <span>Date:</span>
+                    <span>{new Date(receiptToShow.timestamp).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-[11px] font-bold text-slate-500">
+                    <span>Txn ID:</span>
+                    <span>#{receiptToShow.id}</span>
+                </div>
+                <div className="pt-4 space-y-3">
+                    {receiptToShow.items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between items-start text-xs">
+                            <div className="flex-1 pr-4">
+                                <p className="font-black text-slate-800">{item.name}</p>
+                                <p className="text-[10px] text-slate-400">Qty: {item.quantity} × ₦{item.price.toLocaleString()}</p>
+                            </div>
+                            <span className="font-bold text-slate-900 shrink-0">₦{(item.price * item.quantity).toLocaleString()}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="w-full flex justify-between items-end mb-8">
+                <span className="text-xs font-black uppercase text-slate-400">Total Paid</span>
+                <span className="text-3xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span>
+            </div>
+
+            <div className="w-full space-y-4 print:hidden">
+                <button onClick={printReceipt} className="w-full py-5 bg-slate-900 text-white rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center justify-center gap-2">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
+                   Print Receipt
+                </button>
+                <button onClick={() => setReceiptToShow(null)} className="w-full py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-slate-900 transition-all">Close</button>
+            </div>
+            
+            <p className="mt-8 text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em]">Thank you for shopping!</p>
+          </div>
+        </div>
+      )}
+
       {/* Admin Login Modal */}
       {isLoginOverlayOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
@@ -239,7 +309,7 @@ const App: React.FC = () => {
                 onChange={e => setPasscodeInput(e.target.value)}
                 autoFocus
               />
-              <button type="submit" className="w-full py-5 text-sm font-black text-white uppercase transition-all bg-blue-600 shadow-xl rounded-3xl tracking-widest hover:bg-blue-700 active:scale-95">
+              <button type="submit" className="w-full py-5 text-sm font-black text-white uppercase transition-all bg-blue-600 shadow-xl rounded-3xl tracking-widest hover:bg-blue-700 active:scale-95 shadow-blue-600/30">
                 Unlock System
               </button>
             </form>
@@ -255,7 +325,7 @@ const App: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-black italic tracking-tighter leading-tight">SUPERMART</h1>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Inventory v4.0</p>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Enterprise v5.0</p>
           </div>
         </div>
 
@@ -263,7 +333,8 @@ const App: React.FC = () => {
           {[
             { id: 'Dashboard', icon: <ICONS.Dashboard />, label: 'Analytics' },
             { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Stock Manager' },
-            { id: 'Register', icon: <ICONS.Register />, label: 'Checkout' }
+            { id: 'Register', icon: <ICONS.Register />, label: 'Checkout' },
+            { id: 'Transactions', icon: <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 21h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2z"/><path d="M10 7h4"/><path d="M10 11h4"/><path d="M10 15h4"/></svg>, label: 'Sales History' }
           ].map(item => (
             <button
               key={item.id}
@@ -286,7 +357,7 @@ const App: React.FC = () => {
         <div className="p-6 shrink-0">
           <div className="p-5 bg-white/5 border border-white/5 rounded-3xl backdrop-blur-md">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active User</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Role</span>
               <span className={`text-[10px] px-2.5 py-1 rounded-lg font-black ${role === 'Admin' ? 'bg-amber-500/20 text-amber-500' : 'bg-emerald-500/20 text-emerald-500'}`}>{role}</span>
             </div>
             <button onClick={handleRoleToggle} className="w-full py-3 bg-white/10 text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-white/20 transition-all">
@@ -309,7 +380,7 @@ const App: React.FC = () => {
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
             <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight truncate">
-              {activeTab === 'Register' ? 'Point of Sale' : activeTab}
+              {activeTab === 'Register' ? 'Point of Sale' : activeTab === 'Transactions' ? 'Sales History' : activeTab}
             </h2>
           </div>
           
@@ -325,12 +396,12 @@ const App: React.FC = () => {
               </button>
             )}
 
-            {activeTab !== 'Register' && (
+            {activeTab !== 'Register' && activeTab !== 'Transactions' && (
               <div className="relative group hidden sm:block">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-all"><ICONS.Search /></span>
                 <input 
                   type="text" 
-                  placeholder="Find products..." 
+                  placeholder="Search catalog..." 
                   className="pl-12 pr-6 py-3 bg-slate-100/50 border border-slate-200 rounded-2xl text-sm font-bold focus:bg-white focus:border-blue-600 focus:ring-4 focus:ring-blue-600/10 outline-none w-48 md:w-80 transition-all"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
@@ -346,7 +417,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Order Basket Overlay (Hidden until triggered) */}
+        {/* Order Basket Overlay */}
         {isBasketOpen && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-10 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
             <div className="w-full max-w-4xl h-full max-h-[850px] bg-white rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
@@ -355,7 +426,7 @@ const App: React.FC = () => {
                     <button onClick={() => setIsBasketOpen(false)} className="p-3 bg-slate-100 rounded-2xl text-slate-500 hover:bg-slate-200 transition-colors">
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                     </button>
-                    <h3 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter uppercase">Order Summary</h3>
+                    <h3 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter uppercase">Current Basket</h3>
                  </div>
                  <span className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl text-md font-black shadow-lg shadow-blue-600/30">{cart.length}</span>
               </div>
@@ -364,7 +435,7 @@ const App: React.FC = () => {
                 {cart.map(item => (
                   <div key={item.id} className="p-6 md:p-8 bg-slate-50 border border-slate-200 rounded-[2.5rem] flex flex-wrap items-center gap-6 hover:shadow-xl transition-all">
                     <div className="flex-1 min-w-[200px]">
-                        <p className="text-lg font-black text-slate-900 truncate leading-tight">{item.name}</p>
+                        <p className="text-lg font-black text-slate-900 truncate break-words">{item.name}</p>
                         <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-widest">SKU: {item.sku}</p>
                     </div>
                     <div className="flex items-center gap-3 p-2 bg-white border border-slate-200 rounded-2xl shadow-sm">
@@ -374,7 +445,7 @@ const App: React.FC = () => {
                     </div>
                     <div className="text-right min-w-[120px]">
                         <p className="text-xl font-black text-slate-900 tracking-tighter">₦{(item.price * item.cartQuantity).toLocaleString()}</p>
-                        <p className="text-[10px] font-bold text-slate-400 mt-1">₦{item.price.toLocaleString()} EA</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1">Unit: ₦{item.price.toLocaleString()}</p>
                     </div>
                     <button onClick={() => removeFromCart(item.id)} className="p-4 text-slate-300 hover:text-rose-500 transition-colors">
                         <ICONS.Trash />
@@ -384,17 +455,17 @@ const App: React.FC = () => {
               </div>
 
               <div className="p-10 bg-slate-50 border-t border-slate-100 shrink-0">
-                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                     <div>
-                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Total Payable Amount</p>
+                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Total Payable</p>
                         <p className="text-5xl md:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cartTotal.toLocaleString()}</p>
                     </div>
                     <div className="flex gap-4">
                         <button 
                             onClick={() => setIsBasketOpen(false)}
-                            className="px-8 py-5 text-sm font-black text-slate-500 uppercase tracking-widest rounded-[2rem] hover:bg-white transition-all border-2 border-transparent"
+                            className="px-8 py-5 text-sm font-black text-slate-500 uppercase tracking-widest rounded-[2rem] hover:bg-white transition-all"
                         >
-                            Continue Shopping
+                            Back
                         </button>
                         <button 
                             onClick={completeCheckout}
@@ -415,13 +486,18 @@ const App: React.FC = () => {
               {/* Stats Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
                 {role === 'Admin' ? (
-                  <StatCard title="Inventory Value" value={`₦${stats.totalValue.toLocaleString()}`} icon={<ICONS.Inventory />} color="blue" />
+                  <>
+                    <StatCard title="Total Sales Lifetime" value={`₦${totalSalesAllTime.toLocaleString()}`} icon={<ICONS.Register />} color="emerald" />
+                    <StatCard title="Inventory Value" value={`₦${stats.totalValue.toLocaleString()}`} icon={<ICONS.Inventory />} color="blue" />
+                  </>
                 ) : (
-                  <StatCard title="Today's Sales" value={`₦${todaySales.toLocaleString()}`} icon={<ICONS.Register />} color="blue" />
+                  <>
+                    <StatCard title="Today's Total Sales" value={`₦${todaySales.toLocaleString()}`} icon={<ICONS.Register />} color="blue" />
+                    <StatCard title="Items Available" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" />
+                  </>
                 )}
-                <StatCard title="Active SKUs" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" />
-                <StatCard title="Low Stock" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" alert={stats.lowStockCount > 0} />
-                <StatCard title="Out of Stock" value={stats.outOfStockCount} icon={<ICONS.Alert />} color="rose" alert={stats.outOfStockCount > 0} />
+                <StatCard title="Low Stock Alerts" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" alert={stats.lowStockCount > 0} />
+                <StatCard title="Total SKU Count" value={stats.totalItems} icon={<ICONS.Dashboard />} color="rose" />
               </div>
 
               <div className="flex flex-col xl:flex-row gap-10">
@@ -429,14 +505,14 @@ const App: React.FC = () => {
                   <div className="flex items-center justify-between mb-10">
                     <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
                       <span className="p-3 bg-blue-600 text-white rounded-2xl shrink-0"><ICONS.Dashboard /></span>
-                      AI Demand Insights
+                      AI Business Strategy
                     </h3>
-                    {loadingInsights && <div className="w-5 h-5 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin shrink-0"></div>}
                   </div>
 
-                  {loadingInsights && insights.recommendations.length === 0 ? (
+                  {loadingInsights ? (
                     <div className="py-20 flex flex-col items-center justify-center text-slate-400">
-                      <p className="text-sm font-black tracking-widest uppercase animate-pulse">Running Gemini analysis...</p>
+                      <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin mb-6"></div>
+                      <p className="text-sm font-black tracking-widest uppercase animate-pulse text-center">Consulting AI Intelligence...</p>
                     </div>
                   ) : (
                     <div className="space-y-10 overflow-hidden">
@@ -457,27 +533,27 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="w-full xl:w-96 bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm flex flex-col shrink-0">
-                  <h3 className="text-xl font-black text-slate-900 mb-8">Recent Sales</h3>
+                  <h3 className="text-xl font-black text-slate-900 mb-8">Latest Orders</h3>
                   <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar max-h-[600px] pr-2">
                     {transactions.length === 0 ? (
                       <div className="py-20 text-center opacity-30">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">No Transactions</p>
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">No Sales Record</p>
                       </div>
                     ) : (
-                      transactions.slice(0, 20).map(tx => (
+                      transactions.slice(0, 10).map(tx => (
                         <div key={tx.id} className="p-5 bg-slate-50 border border-slate-100 rounded-[2rem] flex items-center justify-between hover:bg-white hover:border-blue-100 transition-all">
                           <div className="min-w-0">
-                            <p className="text-sm font-black text-slate-900 truncate">{tx.productName}</p>
-                            <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">{new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                            <p className="text-sm font-black text-slate-900 truncate">Order #{tx.id}</p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">{tx.items.length} items • {new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
                           <div className="text-right ml-3">
-                            <p className="text-sm font-black text-blue-600">₦{tx.price.toLocaleString()}</p>
-                            <p className="text-[10px] font-black text-slate-400 mt-1">x{tx.quantity}</p>
+                            <p className="text-sm font-black text-blue-600">₦{tx.total.toLocaleString()}</p>
                           </div>
                         </div>
                       ))
                     )}
                   </div>
+                  <button onClick={() => setActiveTab('Transactions')} className="mt-8 py-4 bg-slate-950 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all">View All Sales</button>
                 </div>
               </div>
             </div>
@@ -490,18 +566,18 @@ const App: React.FC = () => {
                   <table className="w-full text-left min-w-[900px]">
                     <thead className="bg-slate-50/50 border-b border-slate-100">
                       <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                        <th className="px-10 py-8">Product Master</th>
+                        <th className="px-10 py-8">Product Name</th>
                         <th className="px-10 py-8">SKU Code</th>
-                        <th className="px-10 py-8">Unit Price</th>
-                        <th className="px-10 py-8">Availability</th>
-                        <th className="px-10 py-8 text-right">Control</th>
+                        <th className="px-10 py-8">Price</th>
+                        <th className="px-10 py-8">Status</th>
+                        <th className="px-10 py-8 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredProducts.map(p => (
                         <tr key={p.id} className="group hover:bg-blue-50/20 transition-all duration-300">
                           <td className="px-10 py-8">
-                            <div className="font-black text-slate-900 text-md truncate max-w-[300px]">{p.name}</div>
+                            <div className="font-black text-slate-900 text-md truncate break-words max-w-[300px]">{p.name}</div>
                           </td>
                           <td className="px-10 py-8">
                             <span className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase tracking-widest font-mono">{p.sku}</span>
@@ -542,14 +618,14 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Register' && (
-            <div className="h-full flex flex-col bg-slate-100/40 animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden">
+            <div className="h-full flex flex-col bg-slate-100/40 animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden max-w-[1600px] mx-auto w-full">
                <div className="p-6 md:p-10 bg-white border-b border-slate-100 shadow-sm flex flex-col md:flex-row gap-6 shrink-0">
                   <div className="flex-1 relative group">
                     <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors"><ICONS.Search /></span>
                     <input 
                       type="text" 
-                      placeholder="Type product name or scan code..." 
-                      className="w-full pl-16 pr-8 py-5 text-md font-bold bg-slate-50 border-2 border-transparent rounded-[2.5rem] focus:bg-white focus:border-blue-600 outline-none transition-all shadow-inner"
+                      placeholder="Search items for checkout..." 
+                      className="w-full pl-16 pr-8 py-5 text-md font-bold bg-slate-50 border-2 border-transparent rounded-[2.5rem] focus:bg-white focus:border-blue-600 outline-none transition-all"
                       value={searchTerm}
                       onChange={e => setSearchTerm(e.target.value)}
                       autoFocus
@@ -563,28 +639,77 @@ const App: React.FC = () => {
                       key={p.id}
                       disabled={p.quantity <= 0}
                       onClick={() => addToCart(p)}
-                      className={`p-8 bg-white border-2 border-transparent rounded-[3.5rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 grayscale cursor-not-allowed' : 'shadow-sm shadow-slate-200/50'}`}
+                      className={`p-8 bg-white border-2 border-transparent rounded-[3.5rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 grayscale cursor-not-allowed' : 'shadow-sm'}`}
                     >
                       <div className="flex justify-between items-start mb-6">
                          <div className="text-2xl font-black text-slate-900">₦{p.price.toLocaleString()}</div>
-                         <div className={`px-3 py-1 bg-slate-100 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-500`}>
-                            {p.sku}
-                         </div>
+                         <div className="px-3 py-1 bg-slate-100 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-500">{p.sku}</div>
                       </div>
-                      <h4 className="text-lg font-black text-slate-800 mb-2 leading-tight line-clamp-2 min-h-[3rem]">{p.name}</h4>
+                      <h4 className="text-lg font-black text-slate-800 mb-2 leading-tight line-clamp-2 min-h-[3rem] break-words">{p.name}</h4>
                       
-                      <div className="mt-8 flex items-center justify-between">
+                      <div className="mt-8 flex items-center justify-between overflow-visible">
                          <div className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
-                            {p.quantity} Units Left
+                            {p.quantity} In Stock
                          </div>
-                         <div className="p-3 bg-blue-600 text-white rounded-2xl opacity-0 group-hover:opacity-100 lg:group-hover:translate-y-0 translate-y-4 transition-all shadow-lg shadow-blue-600/40">
+                         <div className="p-3 bg-blue-600 text-white rounded-2xl opacity-0 group-hover:opacity-100 lg:group-hover:translate-y-0 translate-y-4 transition-all shadow-lg shadow-blue-600/40 shrink-0">
                             <ICONS.Plus />
                          </div>
                       </div>
-                      {p.quantity <= 0 && <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 font-black text-rose-600 uppercase text-xs tracking-widest rounded-[3.5rem]">SOLD OUT</div>}
+                      {p.quantity <= 0 && <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 font-black text-rose-600 uppercase text-xs tracking-widest rounded-[3.5rem]">OUT OF STOCK</div>}
                     </button>
                   ))}
                </div>
+            </div>
+          )}
+
+          {activeTab === 'Transactions' && (
+            <div className="p-6 md:p-10 animate-in fade-in slide-in-from-right-4 duration-500 max-w-[1600px] mx-auto w-full">
+               <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[900px]">
+                    <thead className="bg-slate-50/50 border-b border-slate-100">
+                      <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                        <th className="px-10 py-8">Date & Time</th>
+                        <th className="px-10 py-8">Transaction ID</th>
+                        <th className="px-10 py-8">Items Purchased</th>
+                        <th className="px-10 py-8">Grand Total</th>
+                        <th className="px-10 py-8 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {transactions.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-20 text-center text-slate-300 font-bold italic uppercase tracking-widest">No Sales Recorded Yet</td>
+                        </tr>
+                      ) : (
+                        transactions.map(tx => (
+                          <tr key={tx.id} className="group hover:bg-blue-50/20 transition-all">
+                            <td className="px-10 py-8 text-sm font-bold text-slate-600 whitespace-nowrap">
+                              {new Date(tx.timestamp).toLocaleString()}
+                            </td>
+                            <td className="px-10 py-8">
+                              <span className="px-4 py-1.5 bg-slate-900 text-white rounded-full text-[10px] font-black uppercase tracking-widest">#{tx.id}</span>
+                            </td>
+                            <td className="px-10 py-8">
+                                <div className="text-xs font-bold text-slate-700 max-w-[300px] break-words">
+                                  {tx.items.map(i => `${i.name} (x${i.quantity})`).join(', ')}
+                                </div>
+                            </td>
+                            <td className="px-10 py-8">
+                                <span className="text-lg font-black text-emerald-600">₦{tx.total.toLocaleString()}</span>
+                            </td>
+                            <td className="px-10 py-8 text-right">
+                                <button onClick={() => setReceiptToShow(tx)} className="p-3 bg-slate-100 text-slate-500 rounded-2xl hover:bg-blue-600 hover:text-white transition-all active:scale-95">
+                                   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
+                                </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -601,18 +726,26 @@ const App: React.FC = () => {
 };
 
 const StatCard = ({ title, value, icon, color, alert }: { title: string, value: any, icon: React.ReactNode, color: string, alert?: boolean }) => {
+  const colorStyles = {
+    blue: 'text-blue-600 group-hover:text-blue-700',
+    emerald: 'text-emerald-600 group-hover:text-emerald-700',
+    rose: 'text-rose-600 group-hover:text-rose-700',
+    amber: 'text-amber-600 group-hover:text-amber-700',
+    slate: 'text-slate-900 group-hover:text-blue-600'
+  };
+
   return (
     <div className={`p-8 bg-white border-2 rounded-[3.5rem] transition-all duration-500 min-w-0 ${alert ? 'border-rose-100 shadow-2xl shadow-rose-600/10' : 'border-slate-100 shadow-sm hover:shadow-2xl group'}`}>
       <div className="flex items-center justify-between mb-8 overflow-hidden">
-        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] truncate">{title}</span>
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] truncate pr-2 shrink-0">{title}</span>
         <div className={`p-3.5 rounded-2xl transition-all shrink-0 ${alert ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : 'bg-slate-50 text-slate-400 group-hover:bg-blue-600 group-hover:text-white'}`}>
           {icon}
         </div>
       </div>
-      <div className={`text-4xl 2xl:text-5xl font-black tracking-tighter truncate transition-colors ${alert ? 'text-rose-600' : 'text-slate-900 group-hover:text-blue-600'}`}>
+      <div className={`text-4xl 2xl:text-5xl font-black tracking-tighter truncate break-words transition-colors ${alert ? 'text-rose-600' : colorStyles[color as keyof typeof colorStyles] || 'text-slate-900'}`}>
         {value}
       </div>
-      {alert && <p className="mt-5 text-[10px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Critical Level</p>}
+      {alert && <p className="mt-5 text-[10px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Critical Review Needed</p>}
     </div>
   );
 };

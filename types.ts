@@ -13,13 +13,19 @@ export interface Product {
   tags?: string[];
 }
 
-export interface Transaction {
-  id: string;
+export interface TransactionItem {
   productId: string;
-  productName: string;
-  type: 'SALE' | 'RESTOCK';
+  name: string;
+  sku: string;
   quantity: number;
   price: number;
+}
+
+export interface Transaction {
+  id: string;
+  items: TransactionItem[];
+  total: number;
+  type: 'SALE' | 'RESTOCK';
   timestamp: string;
 }
 
