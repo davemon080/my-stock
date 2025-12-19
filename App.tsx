@@ -11,17 +11,23 @@ interface CartItem extends Product {
 }
 
 const App: React.FC = () => {
-  const [role, setRole] = useState<UserRole>('Admin');
+  // Start as Seller on Dashboard as requested
+  const [role, setRole] = useState<UserRole>('Seller');
   const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register'>('Dashboard');
   
+  // Admin Login State
+  const [isLoginOverlayOpen, setIsLoginOverlayOpen] = useState(false);
+  const [passcodeInput, setPasscodeInput] = useState('');
+  const [loginError, setLoginError] = useState(false);
+
   // Data Persistence
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('sm_inventory_v4');
+    const saved = localStorage.getItem('sm_inventory_v5');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
   
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('sm_transactions_v4');
+    const saved = localStorage.getItem('sm_transactions_v5');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -39,11 +45,11 @@ const App: React.FC = () => {
 
   // Persistence Effects
   useEffect(() => {
-    localStorage.setItem('sm_inventory_v4', JSON.stringify(products));
+    localStorage.setItem('sm_inventory_v5', JSON.stringify(products));
   }, [products]);
 
   useEffect(() => {
-    localStorage.setItem('sm_transactions_v4', JSON.stringify(transactions));
+    localStorage.setItem('sm_transactions_v5', JSON.stringify(transactions));
   }, [transactions]);
 
   // AI Analysis Effect
@@ -74,6 +80,15 @@ const App: React.FC = () => {
     };
   }, [products]);
 
+  // Daily Sales calculation for Seller Dashboard
+  const todaySales = useMemo(() => {
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    return transactions
+      .filter(tx => new Date(tx.timestamp) >= startOfDay)
+      .reduce((acc, tx) => acc + tx.price, 0);
+  }, [transactions]);
+
   // Search Logic
   const fuse = useMemo(() => new Fuse(products, { 
     keys: ['name', 'sku', 'category'], 
@@ -92,7 +107,7 @@ const App: React.FC = () => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
         if (existing.cartQuantity >= product.quantity) {
-          alert(`Cannot add more. Only ${product.quantity} units in stock.`);
+          alert(`Insufficient stock. Only ${product.quantity} available.`);
           return prev;
         }
         return prev.map(item => item.id === product.id ? { ...item, cartQuantity: item.cartQuantity + 1 } : item);
@@ -109,10 +124,7 @@ const App: React.FC = () => {
     setCart(prev => prev.map(item => {
       if (item.id === id) {
         const newQty = Math.max(1, item.cartQuantity + delta);
-        if (newQty > item.quantity) {
-          alert("Maximum available stock reached.");
-          return item;
-        }
+        if (newQty > item.quantity) return item;
         return { ...item, cartQuantity: newQty };
       }
       return item;
@@ -123,7 +135,6 @@ const App: React.FC = () => {
 
   const completeCheckout = () => {
     if (cart.length === 0) return;
-    
     const now = new Date().toISOString();
     const newTransactions: Transaction[] = cart.map(item => ({
       id: Math.random().toString(36).substr(2, 9),
@@ -135,19 +146,39 @@ const App: React.FC = () => {
       timestamp: now
     }));
 
-    // Update Global Inventory
     setProducts(prev => prev.map(p => {
       const soldItem = cart.find(item => item.id === p.id);
-      if (soldItem) {
-        return { ...p, quantity: p.quantity - soldItem.cartQuantity, lastUpdated: now };
-      }
-      return p;
+      return soldItem ? { ...p, quantity: p.quantity - soldItem.cartQuantity, lastUpdated: now } : p;
     }));
 
-    setTransactions(prev => [...newTransactions, ...prev].slice(0, 50));
+    setTransactions(prev => [...newTransactions, ...prev].slice(0, 100));
     setCart([]);
     setSearchTerm('');
-    alert(`Transaction Successful!\nTotal: ₦${cartTotal.toLocaleString()}`);
+    alert(`Success! Sale recorded: ₦${cartTotal.toLocaleString()}`);
+  };
+
+  // Role Switching Logic
+  const handleAdminLogin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (passcodeInput === "admin2024") {
+      setRole('Admin');
+      setIsLoginOverlayOpen(false);
+      setPasscodeInput('');
+      setLoginError(false);
+      setActiveTab('Dashboard');
+    } else {
+      setLoginError(true);
+      setTimeout(() => setLoginError(false), 2000);
+    }
+  };
+
+  const handleRoleToggle = () => {
+    if (role === 'Admin') {
+      setRole('Seller');
+      setActiveTab('Dashboard');
+    } else {
+      setIsLoginOverlayOpen(true);
+    }
   };
 
   // Product CRUD
@@ -164,6 +195,44 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden text-slate-900">
+      {/* Admin Login Overlay */}
+      {isLoginOverlayOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-10 shadow-2xl relative animate-in zoom-in-95 duration-300">
+            <button 
+              onClick={() => { setIsLoginOverlayOpen(false); setPasscodeInput(''); setLoginError(false); }}
+              className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+            <div className="mb-8 text-center">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl mb-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight">Admin Access</h3>
+              <p className="text-slate-500 text-xs font-bold uppercase mt-2 tracking-widest">Enter Secure Passcode</p>
+            </div>
+            <form onSubmit={handleAdminLogin} className="space-y-6">
+              <input 
+                type="password"
+                placeholder="••••••••"
+                className={`w-full px-6 py-4 bg-slate-50 border-2 rounded-2xl text-center text-xl font-black tracking-[0.5em] outline-none transition-all ${loginError ? 'border-rose-500 shake bg-rose-50 text-rose-600' : 'border-slate-100 focus:border-blue-600 focus:bg-white'}`}
+                value={passcodeInput}
+                onChange={e => setPasscodeInput(e.target.value)}
+                autoFocus
+              />
+              {loginError && <p className="text-rose-500 text-[10px] font-black text-center uppercase tracking-widest animate-pulse">Incorrect Passcode</p>}
+              <button 
+                type="submit"
+                className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-sm shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95"
+              >
+                Unlock Dashboard
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Navigation Sidebar */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col shadow-2xl z-30">
         <div className="p-8 flex items-center gap-3 border-b border-white/10">
@@ -176,7 +245,7 @@ const App: React.FC = () => {
         <nav className="flex-1 p-6 space-y-3">
           {[
             { id: 'Dashboard', icon: <ICONS.Dashboard />, label: 'Analytics' },
-            { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Inventory' },
+            { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Stock Manager' },
             { id: 'Register', icon: <ICONS.Register />, label: 'Point of Sale' }
           ].map(item => (
             <button
@@ -197,18 +266,14 @@ const App: React.FC = () => {
         <div className="p-6">
           <div className="bg-slate-800 p-4 rounded-2xl border border-white/5">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Mode</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Role</span>
               <span className={`text-[10px] px-2 py-0.5 rounded font-black ${role === 'Admin' ? 'bg-amber-500/20 text-amber-500' : 'bg-emerald-500/20 text-emerald-500'}`}>{role}</span>
             </div>
             <button 
-              onClick={() => {
-                const nextRole = role === 'Admin' ? 'Seller' : 'Admin';
-                setRole(nextRole);
-                if (nextRole === 'Seller') setActiveTab('Register');
-              }}
+              onClick={handleRoleToggle}
               className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-black transition-all"
             >
-              Switch Account
+              {role === 'Admin' ? 'Logout Admin' : 'Admin Login'}
             </button>
           </div>
         </div>
@@ -247,7 +312,12 @@ const App: React.FC = () => {
           {activeTab === 'Dashboard' && (
             <div className="p-10 space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                <StatCard title="Inventory Value" value={`₦${stats.totalValue.toLocaleString()}`} color="blue" />
+                {/* Restricted Visibility Rule */}
+                {role === 'Admin' ? (
+                  <StatCard title="Inventory Value" value={`₦${stats.totalValue.toLocaleString()}`} color="blue" />
+                ) : (
+                  <StatCard title="Today's Sales" value={`₦${todaySales.toLocaleString()}`} color="blue" />
+                )}
                 <StatCard title="Total SKU" value={stats.totalItems} color="slate" />
                 <StatCard title="Low Stock" value={stats.lowStockCount} color="amber" alert={stats.lowStockCount > 0} />
                 <StatCard title="Stock Out" value={stats.outOfStockCount} color="rose" alert={stats.outOfStockCount > 0} />
@@ -289,17 +359,17 @@ const App: React.FC = () => {
                     {transactions.length === 0 ? (
                       <div className="py-20 text-center space-y-4">
                         <div className="mx-auto w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-300"><ICONS.Register /></div>
-                        <p className="text-slate-400 text-xs font-black uppercase tracking-widest">No Recent Sales</p>
+                        <p className="text-slate-400 text-xs font-black uppercase tracking-widest">No Sales Found</p>
                       </div>
                     ) : (
-                      transactions.map(tx => (
+                      transactions.slice(0, 15).map(tx => (
                         <div key={tx.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:bg-white hover:border-blue-100 transition-all">
                           <div className="min-w-0">
                             <p className="text-sm font-black text-slate-800 truncate">{tx.productName}</p>
-                            <p className="text-[10px] text-slate-400 font-bold mt-0.5">{new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                            <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase">{new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
                           <div className="text-right shrink-0">
-                            <p className="text-sm font-black text-blue-600">₦{tx.price.toLocaleString()}</p>
+                            <p className="text-sm font-black text-emerald-600">₦{tx.price.toLocaleString()}</p>
                             <p className="text-[10px] font-black text-slate-400 uppercase">Qty: {tx.quantity}</p>
                           </div>
                         </div>
@@ -355,14 +425,11 @@ const App: React.FC = () => {
                               EDIT
                             </button>
                           ) : (
-                            <span className="text-[10px] font-black text-slate-300 italic">Read-only</span>
+                            <span className="text-[10px] font-black text-slate-300 italic">Restricted</span>
                           )}
                         </td>
                       </tr>
                     ))}
-                    {filteredProducts.length === 0 && (
-                      <tr><td colSpan={5} className="p-32 text-center text-slate-400 font-bold italic">No catalog matches found.</td></tr>
-                    )}
                   </tbody>
                 </table>
               </div>
@@ -370,16 +437,16 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Register' && (
-            <div className="flex h-full animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden">
-               {/* Sales Interface */}
-               <div className="flex-[2] border-r border-slate-200 flex flex-col min-w-0 bg-slate-100/30">
-                 <div className="p-8 bg-white border-b border-slate-100 shadow-sm z-10">
+            <div className="flex h-full animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden bg-slate-100/40">
+               {/* Product Grid Area */}
+               <div className="flex-[2] flex flex-col min-w-0 border-r border-slate-200">
+                 <div className="p-8 bg-white border-b border-slate-100">
                     <div className="relative group">
                       <span className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600"><ICONS.Search /></span>
                       <input 
                         type="text" 
-                        placeholder="Scan Barcode or Search Product..." 
-                        className="w-full pl-14 pr-6 py-4 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-sm font-bold focus:bg-white focus:border-blue-600 outline-none transition-all shadow-inner"
+                        placeholder="Search Catalog or Barcode..." 
+                        className="w-full pl-14 pr-6 py-4 bg-slate-50 border-2 border-transparent rounded-[1.5rem] text-sm font-bold focus:bg-white focus:border-blue-600 outline-none transition-all"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                         autoFocus
@@ -387,30 +454,30 @@ const App: React.FC = () => {
                     </div>
                  </div>
                  
-                 <div className="flex-1 p-10 overflow-y-auto custom-scrollbar grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-max">
+                 <div className="flex-1 p-8 overflow-y-auto custom-scrollbar grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-max">
                     {filteredProducts.map(p => (
                       <button 
                         key={p.id}
                         disabled={p.quantity <= 0}
                         onClick={() => addToCart(p)}
-                        className={`p-6 bg-white border-2 border-transparent rounded-[2rem] text-left hover:border-blue-600 hover:shadow-2xl hover:shadow-blue-600/10 transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 grayscale cursor-not-allowed' : 'cursor-pointer shadow-sm'}`}
+                        className={`p-6 bg-white border-2 border-transparent rounded-[2rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 cursor-not-allowed' : 'shadow-sm'}`}
                       >
                         <div className="flex justify-between items-start mb-4">
-                          <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-3 py-1 rounded-full uppercase tracking-tighter">{p.category}</span>
+                          <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-3 py-1 rounded-full uppercase">{p.category}</span>
                           <span className="font-black text-lg text-slate-900">₦{p.price.toLocaleString()}</span>
                         </div>
-                        <p className="font-black text-slate-800 text-md leading-tight mb-1">{p.name}</p>
+                        <p className="font-black text-slate-800 text-md truncate mb-1">{p.name}</p>
                         <p className="text-[11px] text-slate-400 font-mono">{p.sku}</p>
                         
                         <div className="mt-6 flex items-center justify-between">
                            <div className={`text-[10px] font-black px-2 py-1 rounded-lg ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400'}`}>
                               STOCK: {p.quantity}
                            </div>
-                           <div className="bg-blue-600 text-white p-2 rounded-xl scale-0 group-hover:scale-110 transition-transform shadow-lg shadow-blue-600/40">
+                           <div className="bg-blue-600 text-white p-2 rounded-xl scale-0 group-hover:scale-110 transition-transform">
                               <ICONS.Plus />
                            </div>
                         </div>
-                        {p.quantity <= 0 && <div className="absolute inset-0 bg-white/80 flex items-center justify-center font-black text-rose-600 uppercase text-sm tracking-widest -rotate-3 z-10">SOLD OUT</div>}
+                        {p.quantity <= 0 && <div className="absolute inset-0 bg-white/80 flex items-center justify-center font-black text-rose-600 uppercase text-xs z-10">SOLD OUT</div>}
                       </button>
                     ))}
                  </div>
@@ -419,30 +486,29 @@ const App: React.FC = () => {
                {/* Cart Summary Panel */}
                <div className="w-[420px] bg-white flex flex-col shadow-[-20px_0_50px_rgba(0,0,0,0.03)] z-10">
                   <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                     <h3 className="font-black text-slate-900 uppercase tracking-tighter text-xl">Current Basket</h3>
-                     <span className="bg-blue-600 text-white w-8 h-8 flex items-center justify-center rounded-full text-xs font-black shadow-lg shadow-blue-600/20">{cart.length}</span>
+                     <h3 className="font-black text-slate-900 uppercase text-xl tracking-tighter">Current Sale</h3>
+                     <span className="bg-blue-600 text-white w-8 h-8 flex items-center justify-center rounded-full text-xs font-black">{cart.length}</span>
                   </div>
 
-                  <div className="flex-1 p-8 overflow-y-auto custom-scrollbar space-y-5">
+                  <div className="flex-1 p-8 overflow-y-auto custom-scrollbar space-y-4">
                      {cart.length === 0 ? (
-                       <div className="h-full flex flex-col items-center justify-center text-center opacity-30">
-                          <div className="mb-6 p-10 bg-slate-100 rounded-full scale-125"><ICONS.Register /></div>
-                          <p className="text-sm font-black text-slate-600 uppercase tracking-widest">Basket Empty</p>
-                          <p className="text-[11px] mt-2 font-bold max-w-[180px]">Select items from the catalog to begin checkout.</p>
+                       <div className="h-full flex flex-col items-center justify-center text-center opacity-20">
+                          <div className="mb-6 p-8 bg-slate-100 rounded-full"><ICONS.Register /></div>
+                          <p className="text-sm font-black uppercase tracking-widest text-slate-800">Basket is Empty</p>
                        </div>
                      ) : (
                        cart.map(item => (
-                         <div key={item.id} className="flex items-center gap-4 p-5 bg-slate-50 rounded-3xl border border-slate-100 group">
+                         <div key={item.id} className="flex items-center gap-4 p-5 bg-slate-50 rounded-3xl border border-slate-100">
                             <div className="flex-1 min-w-0">
                                <p className="text-sm font-black text-slate-800 truncate">{item.name}</p>
-                               <p className="text-[11px] text-slate-400 font-black mt-0.5 uppercase tracking-tighter">₦{item.price.toLocaleString()} / UNIT</p>
+                               <p className="text-[11px] text-slate-400 font-black mt-0.5">₦{item.price.toLocaleString()} EA</p>
                             </div>
-                            <div className="flex items-center gap-3 bg-white rounded-2xl p-1.5 shadow-sm border border-slate-200">
-                               <button onClick={() => updateCartQty(item.id, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-slate-100 rounded-xl text-xs font-black transition-all active:scale-90">-</button>
+                            <div className="flex items-center gap-3 bg-white rounded-2xl p-1 shadow-sm border border-slate-200">
+                               <button onClick={() => updateCartQty(item.id, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-slate-100 rounded-xl text-xs font-black transition-all">-</button>
                                <span className="text-[12px] font-black w-6 text-center">{item.cartQuantity}</span>
-                               <button onClick={() => updateCartQty(item.id, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-slate-100 rounded-xl text-xs font-black transition-all active:scale-90">+</button>
+                               <button onClick={() => updateCartQty(item.id, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-slate-100 rounded-xl text-xs font-black transition-all">+</button>
                             </div>
-                            <button onClick={() => removeFromCart(item.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-2 hover:bg-rose-50 rounded-xl">
+                            <button onClick={() => removeFromCart(item.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-2">
                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                             </button>
                          </div>
@@ -452,12 +518,12 @@ const App: React.FC = () => {
 
                   <div className="p-10 border-t border-slate-100 bg-slate-50/80">
                      <div className="space-y-4 mb-8">
-                        <div className="flex justify-between items-center text-slate-500 text-xs font-black uppercase tracking-widest">
-                           <span>Cart Subtotal</span>
+                        <div className="flex justify-between items-center text-slate-500 text-[11px] font-black uppercase tracking-widest">
+                           <span>Subtotal</span>
                            <span>₦{cartTotal.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-end text-slate-900 font-black text-3xl tracking-tighter">
-                           <span className="text-xs uppercase tracking-widest text-slate-400 pb-2">Total Pay</span>
+                           <span className="text-xs uppercase tracking-widest text-slate-400 pb-2">Total</span>
                            <span className="text-blue-600">₦{cartTotal.toLocaleString()}</span>
                         </div>
                      </div>
@@ -466,7 +532,7 @@ const App: React.FC = () => {
                         onClick={completeCheckout}
                         className="w-full py-6 bg-blue-600 text-white rounded-[2rem] font-black uppercase tracking-[0.2em] text-sm shadow-2xl shadow-blue-600/40 hover:bg-blue-700 disabled:opacity-30 disabled:shadow-none transition-all active:scale-95 flex items-center justify-center gap-3"
                      >
-                        FINALIZE SALE
+                        FINALIZE & PAY
                      </button>
                   </div>
                </div>
@@ -486,21 +552,14 @@ const App: React.FC = () => {
 };
 
 const StatCard = ({ title, value, color, alert }: { title: string, value: any, color: string, alert?: boolean }) => {
-  const accentColors: Record<string, string> = {
-    blue: 'text-blue-600 bg-blue-100',
-    slate: 'text-slate-600 bg-slate-100',
-    amber: 'text-amber-600 bg-amber-100',
-    rose: 'text-rose-600 bg-rose-100',
-  };
-
   return (
-    <div className={`bg-white p-8 rounded-[2.5rem] border-2 transition-all duration-500 ${alert ? 'border-rose-100 shadow-2xl shadow-rose-600/10 animate-pulse' : 'border-slate-100 shadow-sm hover:shadow-xl hover:shadow-slate-200/50'}`}>
+    <div className={`bg-white p-8 rounded-[2.5rem] border-2 transition-all duration-500 ${alert ? 'border-rose-100 shadow-2xl shadow-rose-600/10 animate-pulse' : 'border-slate-100 shadow-sm hover:shadow-xl'}`}>
       <div className="flex items-center justify-between mb-4">
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{title}</span>
         {alert && <div className="p-1.5 bg-rose-500 text-white rounded-lg"><ICONS.Alert /></div>}
       </div>
       <div className={`text-4xl font-black tracking-tighter ${alert ? 'text-rose-600' : 'text-slate-900'}`}>{value}</div>
-      {alert && <p className="text-[10px] font-black text-rose-500 mt-4 uppercase tracking-widest">CRITICAL ATTENTION</p>}
+      {alert && <p className="text-[10px] font-black text-rose-500 mt-4 uppercase tracking-widest">Attention Needed</p>}
     </div>
   );
 };
