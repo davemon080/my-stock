@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, UserRole, InventoryStats, Transaction, AppConfig, Seller, Branch } from './types.ts';
 import { ICONS } from './constants.tsx';
 import Fuse from 'fuse.js';
@@ -21,6 +21,7 @@ interface Toast {
 
 const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Persistent Session State
   const [currentUser, setCurrentUser] = useState<{ role: UserRole; name: string; branchId: string } | null>(() => {
@@ -218,6 +219,22 @@ const App: React.FC = () => {
         });
       }
     });
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        showToast("Logo must be under 2MB", "error");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setConfig(prev => ({ ...prev, logoUrl: reader.result as string }));
+        showToast("Logo Preview Updated", "info");
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Register Operations
@@ -550,7 +567,7 @@ const App: React.FC = () => {
           {activeTab === 'Transactions' && (
             <div className="max-w-7xl mx-auto space-y-6">
                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="relative w-full max-w-md">
+                  <div className="relative w-full max-md">
                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
                      <input type="text" placeholder="Search receipts by ID or items..." className="w-full pl-12 pr-6 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold shadow-sm" value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
                   </div>
@@ -747,22 +764,70 @@ const App: React.FC = () => {
                   </div>
                </div>
                
-               {/* Identity Configuration */}
+               {/* Cloud Identity & Branding */}
                <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
                   <h3 className="text-2xl font-black mb-8 uppercase tracking-tight text-slate-500">Cloud Identity</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div>
-                       <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Enterprise Name</label>
-                       <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border-2 rounded-xl font-bold" />
+                  <div className="space-y-8">
+                    {/* Logo Upload Section */}
+                    <div className="flex flex-col sm:flex-row items-center gap-8 p-6 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
+                      <div className="relative group">
+                        {config.logoUrl ? (
+                          <img src={config.logoUrl} className="w-32 h-32 rounded-[2rem] object-cover shadow-xl border-4 border-white" />
+                        ) : (
+                          <div className="w-32 h-32 bg-slate-200 rounded-[2rem] flex items-center justify-center text-slate-400">
+                            <ICONS.Inventory />
+                          </div>
+                        )}
+                        <button 
+                          onClick={() => fileInputRef.current?.click()}
+                          className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-[2rem] flex items-center justify-center font-black text-[10px] uppercase tracking-widest"
+                        >
+                          Change
+                        </button>
+                      </div>
+                      <div className="flex-1 text-center sm:text-left">
+                        <p className="text-sm font-black text-slate-900 mb-1 uppercase">Store Signature Logo</p>
+                        <p className="text-xs text-slate-500 mb-4 font-medium">Recommended: Square PNG/JPG, Max 2MB</p>
+                        <div className="flex flex-wrap justify-center sm:justify-start gap-3">
+                           <button 
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-6 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:border-blue-600 hover:text-blue-600 transition-all shadow-sm"
+                           >
+                             Select Device Image
+                           </button>
+                           {config.logoUrl && (
+                             <button 
+                              onClick={() => setConfig(prev => ({ ...prev, logoUrl: '' }))}
+                              className="px-6 py-2.5 bg-rose-50 text-rose-500 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-100 transition-all"
+                             >
+                               Reset
+                             </button>
+                           )}
+                        </div>
+                        <input 
+                          type="file" 
+                          ref={fileInputRef} 
+                          onChange={handleLogoUpload} 
+                          accept="image/*" 
+                          className="hidden" 
+                        />
+                      </div>
                     </div>
-                    <div>
-                       <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Master Terminal Pin</label>
-                       <input type="password" value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border-2 rounded-xl font-bold" />
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      <div>
+                         <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Enterprise Name</label>
+                         <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border-2 rounded-xl font-bold focus:border-blue-600 outline-none transition-all" />
+                      </div>
+                      <div>
+                         <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Master Terminal Pin</label>
+                         <input type="password" value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border-2 rounded-xl font-bold focus:border-blue-600 outline-none transition-all" />
+                      </div>
+                      <button onClick={async () => {
+                        await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword);
+                        showToast("Branding Synchronized", "success");
+                      }} className="sm:col-span-2 py-5 bg-indigo-600 text-white rounded-[2rem] font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-600/20 active:scale-95 transition-all">Commit Global Settings</button>
                     </div>
-                    <button onClick={async () => {
-                      await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword);
-                      showToast("Branding Synchronized", "success");
-                    }} className="sm:col-span-2 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Commit Global Settings</button>
                   </div>
                </div>
 
