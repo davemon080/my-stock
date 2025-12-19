@@ -6,13 +6,7 @@ export interface Seller {
   email: string;
   password: string;
   name: string;
-}
-
-export interface AppConfig {
-  supermarketName: string;
-  logoUrl: string;
-  adminPassword: string;
-  sellers: Seller[];
+  branchId: string; 
 }
 
 export interface Product {
@@ -44,6 +38,23 @@ export interface Transaction {
   totalCost: number;
   type: 'SALE' | 'RESTOCK';
   timestamp: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  location: string;
+  products: Product[];
+  transactions: Transaction[];
+  createdAt: string;
+}
+
+export interface AppConfig {
+  supermarketName: string;
+  logoUrl: string;
+  adminPassword: string;
+  sellers: Seller[];
+  branches: Branch[];
 }
 
 export interface InventoryStats {
