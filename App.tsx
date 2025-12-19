@@ -14,7 +14,7 @@ const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>('Seller');
   const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register'>('Dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
+  const [isBasketOpen, setIsBasketOpen] = useState(false);
   
   // Admin Login State
   const [isLoginOverlayOpen, setIsLoginOverlayOpen] = useState(false);
@@ -23,12 +23,12 @@ const App: React.FC = () => {
 
   // Data Persistence
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('sm_inventory_v8');
+    const saved = localStorage.getItem('sm_inventory_v9');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
   
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('sm_transactions_v8');
+    const saved = localStorage.getItem('sm_transactions_v9');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -46,18 +46,18 @@ const App: React.FC = () => {
 
   // SKU Counter for automatic generation
   const [skuCounter, setSkuCounter] = useState(() => {
-    const saved = localStorage.getItem('sm_sku_counter');
-    return saved ? parseInt(saved) : INITIAL_PRODUCTS.length + 1;
+    const saved = localStorage.getItem('sm_sku_counter_v9');
+    return saved ? parseInt(saved) : (products.length + 100);
   });
 
   // Persistence
   useEffect(() => {
-    localStorage.setItem('sm_inventory_v8', JSON.stringify(products));
-    localStorage.setItem('sm_sku_counter', skuCounter.toString());
+    localStorage.setItem('sm_inventory_v9', JSON.stringify(products));
+    localStorage.setItem('sm_sku_counter_v9', skuCounter.toString());
   }, [products, skuCounter]);
 
   useEffect(() => {
-    localStorage.setItem('sm_transactions_v8', JSON.stringify(transactions));
+    localStorage.setItem('sm_transactions_v9', JSON.stringify(transactions));
   }, [transactions]);
 
   // AI Analysis
@@ -106,6 +106,15 @@ const App: React.FC = () => {
     if (!searchTerm) return products;
     return fuse.search(searchTerm).map(r => r.item);
   }, [products, searchTerm, fuse]);
+
+  // SKU Generation Logic
+  const generateSku = (name: string, seq: number) => {
+    const cleanName = name.replace(/[^a-zA-Z]/g, '');
+    const first = cleanName.charAt(0).toUpperCase() || 'P';
+    const last = cleanName.charAt(cleanName.length - 1).toUpperCase() || 'X';
+    const num = seq.toString().padStart(3, '0');
+    return `${first}${last}${num}`;
+  };
 
   // Cart Logic
   const addToCart = (product: Product) => {
@@ -158,8 +167,8 @@ const App: React.FC = () => {
     setTransactions(prev => [...newTransactions, ...prev].slice(0, 100));
     setCart([]);
     setSearchTerm('');
-    setIsMobileCartOpen(false);
-    alert(`Success! Sale recorded: ₦${cartTotal.toLocaleString()}`);
+    setIsBasketOpen(false);
+    alert(`Checkout Successful! Total: ₦${cartTotal.toLocaleString()}`);
   };
 
   const handleAdminLogin = (e?: React.FormEvent) => {
@@ -185,13 +194,6 @@ const App: React.FC = () => {
     }
   };
 
-  const generateSku = (name: string, seq: number) => {
-    const first = name.charAt(0).toUpperCase() || 'X';
-    const last = name.charAt(name.length - 1).toUpperCase() || 'X';
-    const num = seq.toString().padStart(3, '0');
-    return `${first}${last}${num}`;
-  };
-
   const handleSaveProduct = (productData: Omit<Product, 'id' | 'lastUpdated' | 'sku'>) => {
     const now = new Date().toISOString();
     if (editingProduct) {
@@ -206,7 +208,7 @@ const App: React.FC = () => {
   };
 
   const deleteProduct = (id: string) => {
-    if (window.confirm("Are you sure you want to permanently delete this product?")) {
+    if (window.confirm("Are you sure you want to delete this product?")) {
       setProducts(prev => prev.filter(p => p.id !== id));
       setCart(prev => prev.filter(item => item.id !== id));
     }
@@ -218,7 +220,7 @@ const App: React.FC = () => {
       {isLoginOverlayOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
           <div className="w-full max-w-sm p-10 bg-white rounded-[3rem] shadow-2xl relative animate-in zoom-in-95 duration-300">
-            <button onClick={() => {setIsLoginOverlayOpen(false); setPasscodeInput('');}} className="absolute top-8 right-8 text-slate-400 hover:text-slate-600">
+            <button onClick={() => setIsLoginOverlayOpen(false)} className="absolute top-8 right-8 text-slate-400 hover:text-slate-600">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
             <div className="mb-10 text-center">
@@ -237,7 +239,7 @@ const App: React.FC = () => {
                 onChange={e => setPasscodeInput(e.target.value)}
                 autoFocus
               />
-              <button type="submit" className="w-full py-5 text-sm font-black text-white uppercase transition-all bg-blue-600 shadow-xl rounded-3xl tracking-widest hover:bg-blue-700 active:scale-95 shadow-blue-600/30">
+              <button type="submit" className="w-full py-5 text-sm font-black text-white uppercase transition-all bg-blue-600 shadow-xl rounded-3xl tracking-widest hover:bg-blue-700 active:scale-95">
                 Unlock System
               </button>
             </form>
@@ -247,13 +249,13 @@ const App: React.FC = () => {
 
       {/* Responsive Sidebar */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-72 bg-slate-950 text-white flex flex-col transform transition-transform duration-300 lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="p-8 flex items-center gap-4 border-b border-white/5">
+        <div className="p-8 flex items-center gap-4 border-b border-white/5 shrink-0">
           <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-600/40">
             <ICONS.Inventory />
           </div>
           <div>
             <h1 className="text-xl font-black italic tracking-tighter leading-tight">SUPERMART</h1>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">POS System v3.1</p>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Inventory v4.0</p>
           </div>
         </div>
 
@@ -261,12 +263,12 @@ const App: React.FC = () => {
           {[
             { id: 'Dashboard', icon: <ICONS.Dashboard />, label: 'Analytics' },
             { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Stock Manager' },
-            { id: 'Register', icon: <ICONS.Register />, label: 'Point of Sale' }
+            { id: 'Register', icon: <ICONS.Register />, label: 'Checkout' }
           ].map(item => (
             <button
               key={item.id}
               onClick={() => { setActiveTab(item.id as any); setIsSidebarOpen(false); }}
-              className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all font-bold text-sm ${
+              className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all font-bold text-sm relative ${
                 activeTab === item.id 
                 ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/20' 
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -274,14 +276,17 @@ const App: React.FC = () => {
             >
               <span className="w-5 h-5">{item.icon}</span>
               {item.label}
+              {item.id === 'Register' && cart.length > 0 && (
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 bg-rose-500 text-white text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full animate-bounce shadow-lg shadow-rose-500/20">{cart.length}</span>
+              )}
             </button>
           ))}
         </nav>
 
-        <div className="p-6">
+        <div className="p-6 shrink-0">
           <div className="p-5 bg-white/5 border border-white/5 rounded-3xl backdrop-blur-md">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Role</span>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active User</span>
               <span className={`text-[10px] px-2.5 py-1 rounded-lg font-black ${role === 'Admin' ? 'bg-amber-500/20 text-amber-500' : 'bg-emerald-500/20 text-emerald-500'}`}>{role}</span>
             </div>
             <button onClick={handleRoleToggle} className="w-full py-3 bg-white/10 text-[11px] font-black uppercase tracking-widest rounded-2xl hover:bg-white/20 transition-all">
@@ -297,16 +302,29 @@ const App: React.FC = () => {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
-        <header className="h-20 bg-white/70 backdrop-blur-xl border-b border-slate-200 px-6 md:px-10 flex items-center justify-between sticky top-0 z-30">
-          <div className="flex items-center gap-4">
-            <button onClick={() => setIsSidebarOpen(true)} className="p-2.5 bg-slate-100 rounded-xl text-slate-600 lg:hidden active:scale-95 transition-all">
+      <main className="flex-1 flex flex-col min-w-0 bg-slate-50 overflow-hidden relative">
+        <header className="h-20 bg-white/70 backdrop-blur-xl border-b border-slate-200 px-6 md:px-10 flex items-center justify-between sticky top-0 z-30 shrink-0">
+          <div className="flex items-center gap-4 min-w-0">
+            <button onClick={() => setIsSidebarOpen(true)} className="p-2.5 bg-slate-100 rounded-xl text-slate-600 lg:hidden active:scale-95 transition-all shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
-            <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">{activeTab === 'Register' ? 'Checkout' : activeTab}</h2>
+            <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight truncate">
+              {activeTab === 'Register' ? 'Point of Sale' : activeTab}
+            </h2>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 shrink-0">
+            {activeTab === 'Register' && cart.length > 0 && (
+              <button 
+                onClick={() => setIsBasketOpen(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black shadow-lg shadow-slate-900/20 hover:bg-blue-600 transition-all active:scale-95"
+              >
+                <ICONS.Register />
+                <span>VIEW BASKET</span>
+                <span className="bg-blue-600 text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">{cart.length}</span>
+              </button>
+            )}
+
             {activeTab !== 'Register' && (
               <div className="relative group hidden sm:block">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-all"><ICONS.Search /></span>
@@ -325,19 +343,75 @@ const App: React.FC = () => {
                 <ICONS.Plus /> <span className="hidden md:inline">ADD PRODUCT</span>
               </button>
             )}
-
-            {activeTab === 'Register' && (
-              <button onClick={() => setIsMobileCartOpen(true)} className="lg:hidden p-3 bg-slate-900 text-white rounded-2xl relative shadow-lg active:scale-95 transition-all">
-                <ICONS.Register />
-                {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-blue-600 text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white">{cart.length}</span>}
-              </button>
-            )}
           </div>
         </header>
 
+        {/* Order Basket Overlay (Hidden until triggered) */}
+        {isBasketOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 md:p-10 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="w-full max-w-4xl h-full max-h-[850px] bg-white rounded-[3.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+              <div className="p-8 md:p-10 border-b border-slate-100 flex items-center justify-between shrink-0">
+                 <div className="flex items-center gap-4">
+                    <button onClick={() => setIsBasketOpen(false)} className="p-3 bg-slate-100 rounded-2xl text-slate-500 hover:bg-slate-200 transition-colors">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    </button>
+                    <h3 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tighter uppercase">Order Summary</h3>
+                 </div>
+                 <span className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl text-md font-black shadow-lg shadow-blue-600/30">{cart.length}</span>
+              </div>
+
+              <div className="flex-1 p-8 md:p-10 overflow-y-auto custom-scrollbar space-y-6">
+                {cart.map(item => (
+                  <div key={item.id} className="p-6 md:p-8 bg-slate-50 border border-slate-200 rounded-[2.5rem] flex flex-wrap items-center gap-6 hover:shadow-xl transition-all">
+                    <div className="flex-1 min-w-[200px]">
+                        <p className="text-lg font-black text-slate-900 truncate leading-tight">{item.name}</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase tracking-widest">SKU: {item.sku}</p>
+                    </div>
+                    <div className="flex items-center gap-3 p-2 bg-white border border-slate-200 rounded-2xl shadow-sm">
+                        <button onClick={() => updateCartQty(item.id, -1)} className="w-10 h-10 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-lg font-black transition-all">-</button>
+                        <span className="w-10 text-center text-md font-black">{item.cartQuantity}</span>
+                        <button onClick={() => updateCartQty(item.id, 1)} className="w-10 h-10 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-lg font-black transition-all">+</button>
+                    </div>
+                    <div className="text-right min-w-[120px]">
+                        <p className="text-xl font-black text-slate-900 tracking-tighter">₦{(item.price * item.cartQuantity).toLocaleString()}</p>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1">₦{item.price.toLocaleString()} EA</p>
+                    </div>
+                    <button onClick={() => removeFromCart(item.id)} className="p-4 text-slate-300 hover:text-rose-500 transition-colors">
+                        <ICONS.Trash />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-10 bg-slate-50 border-t border-slate-100 shrink-0">
+                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+                    <div>
+                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Total Payable Amount</p>
+                        <p className="text-5xl md:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cartTotal.toLocaleString()}</p>
+                    </div>
+                    <div className="flex gap-4">
+                        <button 
+                            onClick={() => setIsBasketOpen(false)}
+                            className="px-8 py-5 text-sm font-black text-slate-500 uppercase tracking-widest rounded-[2rem] hover:bg-white transition-all border-2 border-transparent"
+                        >
+                            Continue Shopping
+                        </button>
+                        <button 
+                            onClick={completeCheckout}
+                            className="px-12 py-5 text-sm font-black text-white uppercase tracking-[0.2em] bg-slate-900 shadow-2xl rounded-[2rem] hover:bg-blue-600 transition-all active:scale-95 shadow-slate-900/20"
+                        >
+                            Finalize & Pay
+                        </button>
+                    </div>
+                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {activeTab === 'Dashboard' && (
-            <div className="p-6 md:p-10 space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="p-6 md:p-10 space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-[1600px] mx-auto w-full">
               {/* Stats Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
                 {role === 'Admin' ? (
@@ -345,20 +419,19 @@ const App: React.FC = () => {
                 ) : (
                   <StatCard title="Today's Sales" value={`₦${todaySales.toLocaleString()}`} icon={<ICONS.Register />} color="blue" />
                 )}
-                <StatCard title="Total SKUs" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" />
+                <StatCard title="Active SKUs" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" />
                 <StatCard title="Low Stock" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" alert={stats.lowStockCount > 0} />
                 <StatCard title="Out of Stock" value={stats.outOfStockCount} icon={<ICONS.Alert />} color="rose" alert={stats.outOfStockCount > 0} />
               </div>
 
               <div className="flex flex-col xl:flex-row gap-10">
-                {/* AI & Analytics Area */}
-                <div className="flex-1 bg-white rounded-[3rem] p-8 md:p-10 border border-slate-200 shadow-sm">
+                <div className="flex-1 bg-white rounded-[3rem] p-8 md:p-10 border border-slate-200 shadow-sm min-w-0">
                   <div className="flex items-center justify-between mb-10">
                     <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
-                      <span className="p-3 bg-blue-600 text-white rounded-2xl"><ICONS.Dashboard /></span>
+                      <span className="p-3 bg-blue-600 text-white rounded-2xl shrink-0"><ICONS.Dashboard /></span>
                       AI Demand Insights
                     </h3>
-                    {loadingInsights && <div className="w-5 h-5 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin"></div>}
+                    {loadingInsights && <div className="w-5 h-5 border-2 border-blue-600/30 border-t-blue-600 rounded-full animate-spin shrink-0"></div>}
                   </div>
 
                   {loadingInsights && insights.recommendations.length === 0 ? (
@@ -366,16 +439,16 @@ const App: React.FC = () => {
                       <p className="text-sm font-black tracking-widest uppercase animate-pulse">Running Gemini analysis...</p>
                     </div>
                   ) : (
-                    <div className="space-y-10">
+                    <div className="space-y-10 overflow-hidden">
                       <div className="p-8 bg-slate-50 border border-slate-100 rounded-[2.5rem]">
                         <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-4">MANAGER SUMMARY</span>
-                        <p className="text-md md:text-lg font-bold text-slate-800 leading-relaxed italic">"{insights.insight}"</p>
+                        <p className="text-md md:text-lg font-bold text-slate-800 leading-relaxed italic break-words">"{insights.insight}"</p>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {insights.recommendations.map((rec, i) => (
-                          <div key={i} className="flex items-start gap-5 p-6 bg-white border border-slate-100 rounded-3xl hover:border-blue-500 hover:shadow-xl hover:shadow-blue-500/5 transition-all group">
-                            <div className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-2xl text-xs font-black shadow-lg shadow-blue-600/20 group-hover:scale-110 transition-transform">{i + 1}</div>
-                            <p className="text-sm font-bold text-slate-600 leading-snug">{rec}</p>
+                          <div key={i} className="flex items-start gap-5 p-6 bg-white border border-slate-100 rounded-3xl hover:border-blue-500 hover:shadow-xl transition-all group overflow-hidden">
+                            <div className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-2xl text-xs font-black shrink-0">{i + 1}</div>
+                            <p className="text-sm font-bold text-slate-600 leading-snug break-words">{rec}</p>
                           </div>
                         ))}
                       </div>
@@ -383,13 +456,12 @@ const App: React.FC = () => {
                   )}
                 </div>
 
-                {/* Sales Feed */}
-                <div className="w-full xl:w-96 bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm flex flex-col">
-                  <h3 className="text-xl font-black text-slate-900 mb-8">Recent Activity</h3>
-                  <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar max-h-[500px] pr-2">
+                <div className="w-full xl:w-96 bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm flex flex-col shrink-0">
+                  <h3 className="text-xl font-black text-slate-900 mb-8">Recent Sales</h3>
+                  <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar max-h-[600px] pr-2">
                     {transactions.length === 0 ? (
                       <div className="py-20 text-center opacity-30">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">No Sales Logged</p>
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">No Transactions</p>
                       </div>
                     ) : (
                       transactions.slice(0, 20).map(tx => (
@@ -398,9 +470,9 @@ const App: React.FC = () => {
                             <p className="text-sm font-black text-slate-900 truncate">{tx.productName}</p>
                             <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">{new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                           </div>
-                          <div className="text-right">
+                          <div className="text-right ml-3">
                             <p className="text-sm font-black text-blue-600">₦{tx.price.toLocaleString()}</p>
-                            <p className="text-[10px] font-black text-slate-400 mt-1 uppercase">QTY: {tx.quantity}</p>
+                            <p className="text-[10px] font-black text-slate-400 mt-1">x{tx.quantity}</p>
                           </div>
                         </div>
                       ))
@@ -412,27 +484,27 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Inventory' && (
-            <div className="p-6 md:p-10 animate-in fade-in zoom-in-95 duration-500">
+            <div className="p-6 md:p-10 animate-in fade-in zoom-in-95 duration-500 max-w-[1600px] mx-auto w-full">
               <div className="bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left min-w-[800px]">
+                  <table className="w-full text-left min-w-[900px]">
                     <thead className="bg-slate-50/50 border-b border-slate-100">
                       <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                        <th className="px-10 py-8">Product Name</th>
-                        <th className="px-10 py-8">SKU Identifier</th>
+                        <th className="px-10 py-8">Product Master</th>
+                        <th className="px-10 py-8">SKU Code</th>
                         <th className="px-10 py-8">Unit Price</th>
-                        <th className="px-10 py-8">Stock Level</th>
-                        <th className="px-10 py-8 text-right">Actions</th>
+                        <th className="px-10 py-8">Availability</th>
+                        <th className="px-10 py-8 text-right">Control</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredProducts.map(p => (
                         <tr key={p.id} className="group hover:bg-blue-50/20 transition-all duration-300">
                           <td className="px-10 py-8">
-                            <div className="font-black text-slate-900 text-md">{p.name}</div>
+                            <div className="font-black text-slate-900 text-md truncate max-w-[300px]">{p.name}</div>
                           </td>
                           <td className="px-10 py-8">
-                            <span className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase tracking-widest">{p.sku}</span>
+                            <span className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase tracking-widest font-mono">{p.sku}</span>
                           </td>
                           <td className="px-10 py-8 font-black text-slate-900 text-sm">₦{p.price.toLocaleString()}</td>
                           <td className="px-10 py-8">
@@ -440,23 +512,25 @@ const App: React.FC = () => {
                               p.quantity <= 0 ? 'bg-rose-100 text-rose-600' : 
                               p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'
                             }`}>
-                              <span className={`w-2.5 h-2.5 rounded-full ${p.quantity <= 0 ? 'bg-rose-500' : p.quantity <= p.minThreshold ? 'bg-amber-500' : 'bg-emerald-500'} animate-pulse`}></span>
+                              <span className={`w-2.5 h-2.5 rounded-full ${p.quantity <= 0 ? 'bg-rose-500' : p.quantity <= p.minThreshold ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
                               {p.quantity} Units
                             </div>
                           </td>
                           <td className="px-10 py-8 text-right">
-                            {role === 'Admin' ? (
-                              <div className="flex items-center justify-end gap-3">
-                                <button onClick={() => {setEditingProduct(p); setIsModalOpen(true);}} className="p-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all active:scale-90">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                                </button>
-                                <button onClick={() => deleteProduct(p.id)} className="p-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-all active:scale-90">
-                                  <ICONS.Trash />
-                                </button>
-                              </div>
-                            ) : (
-                              <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest italic">Protected</span>
-                            )}
+                            <div className="flex items-center justify-end gap-3">
+                              {role === 'Admin' ? (
+                                <>
+                                  <button onClick={() => {setEditingProduct(p); setIsModalOpen(true);}} className="p-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                  </button>
+                                  <button onClick={() => deleteProduct(p.id)} className="p-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-all">
+                                    <ICONS.Trash />
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-[10px] font-black text-slate-300 uppercase italic">Locked</span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -468,120 +542,48 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Register' && (
-            <div className="flex h-full animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden relative">
-               {/* Product Grid Area - Enhanced Desktop View */}
-               <div className="flex-1 flex flex-col min-w-0 bg-slate-100/40">
-                 <div className="p-6 md:p-8 bg-white border-b border-slate-100 flex items-center justify-between shadow-sm z-10">
-                    <div className="flex-1 max-w-2xl relative group">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors"><ICONS.Search /></span>
-                      <input 
-                        type="text" 
-                        placeholder="Scan SKU or type product name..." 
-                        className="w-full pl-16 pr-8 py-4.5 text-md font-bold bg-slate-50 border-2 border-transparent rounded-[1.5rem] focus:bg-white focus:border-blue-600 outline-none transition-all shadow-inner"
-                        value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
-                        autoFocus
-                      />
-                    </div>
-                    <div className="hidden xl:flex items-center gap-6 ml-10">
-                       <div className="text-right">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Available SKUs</p>
-                          <p className="text-xl font-black text-slate-900">{products.length}</p>
-                       </div>
-                    </div>
-                 </div>
-                 
-                 <div className="flex-1 p-6 md:p-10 overflow-y-auto custom-scrollbar grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8 auto-rows-max">
-                    {filteredProducts.map(p => (
-                      <button 
-                        key={p.id}
-                        disabled={p.quantity <= 0}
-                        onClick={() => addToCart(p)}
-                        className={`p-8 bg-white border-2 border-transparent rounded-[3rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 grayscale cursor-not-allowed' : 'shadow-sm'}`}
-                      >
-                        <div className="flex justify-between items-start mb-6">
-                           <div className="text-xl font-black text-slate-900">₦{p.price.toLocaleString()}</div>
-                           <div className={`px-3 py-1.5 rounded-xl text-[10px] font-black tracking-tighter ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                              {p.quantity} UNITS
-                           </div>
-                        </div>
-                        <h4 className="text-lg font-black text-slate-800 mb-2 leading-tight line-clamp-2">{p.name}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{p.sku}</p>
-                        
-                        <div className="mt-8 flex items-center justify-between">
-                           <div className="p-3 bg-blue-600 text-white rounded-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all shadow-lg shadow-blue-600/40">
-                              <ICONS.Plus />
-                           </div>
-                           <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest group-hover:text-blue-600 transition-colors">Add to basket</span>
-                        </div>
-                        {p.quantity <= 0 && <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 font-black text-rose-600 uppercase text-sm tracking-[0.2em] rounded-[3rem]">STOCK OUT</div>}
-                      </button>
-                    ))}
-                    {filteredProducts.length === 0 && (
-                      <div className="col-span-full py-20 text-center">
-                        <p className="text-slate-400 font-bold italic">No matching products found in catalog.</p>
-                      </div>
-                    )}
-                 </div>
+            <div className="h-full flex flex-col bg-slate-100/40 animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden">
+               <div className="p-6 md:p-10 bg-white border-b border-slate-100 shadow-sm flex flex-col md:flex-row gap-6 shrink-0">
+                  <div className="flex-1 relative group">
+                    <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors"><ICONS.Search /></span>
+                    <input 
+                      type="text" 
+                      placeholder="Type product name or scan code..." 
+                      className="w-full pl-16 pr-8 py-5 text-md font-bold bg-slate-50 border-2 border-transparent rounded-[2.5rem] focus:bg-white focus:border-blue-600 outline-none transition-all shadow-inner"
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
                </div>
-
-               {/* Cart Panel - Aligned to right side for Desktop */}
-               <div className={`fixed lg:static inset-y-0 right-0 z-[60] w-full sm:w-[450px] lg:w-[420px] 2xl:w-[480px] bg-white flex flex-col shadow-[-20px_0_60px_rgba(0,0,0,0.1)] transition-transform duration-500 transform ${isMobileCartOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
-                  <div className="p-10 border-b border-slate-100 flex items-center justify-between shrink-0">
-                     <div className="flex items-center gap-4">
-                        <button onClick={() => setIsMobileCartOpen(false)} className="lg:hidden p-3 bg-slate-100 rounded-2xl text-slate-500">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-                        </button>
-                        <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Order Basket</h3>
-                     </div>
-                     <span className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl text-md font-black shadow-lg shadow-blue-600/30">{cart.length}</span>
-                  </div>
-
-                  <div className="flex-1 p-8 md:p-10 overflow-y-auto custom-scrollbar space-y-5">
-                     {cart.length === 0 ? (
-                       <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
-                          <div className="p-10 mb-8 bg-slate-100 rounded-[3.5rem]"><ICONS.Register /></div>
-                          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Your basket is empty</p>
-                       </div>
-                     ) : (
-                       cart.map(item => (
-                         <div key={item.id} className="p-6 bg-slate-50 border border-slate-200 rounded-[2.5rem] flex items-center gap-6 hover:shadow-xl transition-all">
-                            <div className="flex-1 min-w-0">
-                               <p className="text-md font-black text-slate-900 truncate leading-tight">{item.name}</p>
-                               <p className="text-[10px] font-bold text-slate-400 mt-1.5 uppercase">₦{item.price.toLocaleString()}</p>
-                            </div>
-                            <div className="flex items-center gap-3 p-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm">
-                               <button onClick={() => updateCartQty(item.id, -1)} className="w-9 h-9 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-sm font-black transition-all">-</button>
-                               <span className="w-8 text-center text-sm font-black">{item.cartQuantity}</span>
-                               <button onClick={() => updateCartQty(item.id, 1)} className="w-9 h-9 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-sm font-black transition-all">+</button>
-                            </div>
-                            <button onClick={() => removeFromCart(item.id)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors">
-                               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                            </button>
+               
+               <div className="flex-1 p-6 md:p-10 overflow-y-auto custom-scrollbar grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-8 auto-rows-max">
+                  {filteredProducts.map(p => (
+                    <button 
+                      key={p.id}
+                      disabled={p.quantity <= 0}
+                      onClick={() => addToCart(p)}
+                      className={`p-8 bg-white border-2 border-transparent rounded-[3.5rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 grayscale cursor-not-allowed' : 'shadow-sm shadow-slate-200/50'}`}
+                    >
+                      <div className="flex justify-between items-start mb-6">
+                         <div className="text-2xl font-black text-slate-900">₦{p.price.toLocaleString()}</div>
+                         <div className={`px-3 py-1 bg-slate-100 rounded-lg text-[9px] font-black uppercase tracking-widest text-slate-500`}>
+                            {p.sku}
                          </div>
-                       ))
-                     )}
-                  </div>
-
-                  <div className="p-10 bg-slate-50/50 border-t border-slate-100 shrink-0">
-                     <div className="mb-10 space-y-4">
-                        <div className="flex items-center justify-between text-[11px] font-black text-slate-400 uppercase tracking-widest">
-                           <span>Tax Inclusive Total</span>
-                           <span>₦{cartTotal.toLocaleString()}</span>
-                        </div>
-                        <div className="flex items-end justify-between">
-                           <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Payable</span>
-                           <span className="text-5xl font-black text-blue-600 tracking-tighter">₦{cartTotal.toLocaleString()}</span>
-                        </div>
-                     </div>
-                     <button 
-                        disabled={cart.length === 0}
-                        onClick={completeCheckout}
-                        className="w-full py-7 text-sm font-black text-white uppercase tracking-[0.2em] transition-all bg-blue-600 shadow-2xl rounded-[3rem] hover:bg-blue-700 active:scale-95 disabled:opacity-30 shadow-blue-600/40"
-                     >
-                        Finalize Checkout
-                     </button>
-                  </div>
+                      </div>
+                      <h4 className="text-lg font-black text-slate-800 mb-2 leading-tight line-clamp-2 min-h-[3rem]">{p.name}</h4>
+                      
+                      <div className="mt-8 flex items-center justify-between">
+                         <div className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
+                            {p.quantity} Units Left
+                         </div>
+                         <div className="p-3 bg-blue-600 text-white rounded-2xl opacity-0 group-hover:opacity-100 lg:group-hover:translate-y-0 translate-y-4 transition-all shadow-lg shadow-blue-600/40">
+                            <ICONS.Plus />
+                         </div>
+                      </div>
+                      {p.quantity <= 0 && <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 font-black text-rose-600 uppercase text-xs tracking-widest rounded-[3.5rem]">SOLD OUT</div>}
+                    </button>
+                  ))}
                </div>
             </div>
           )}
@@ -600,15 +602,17 @@ const App: React.FC = () => {
 
 const StatCard = ({ title, value, icon, color, alert }: { title: string, value: any, icon: React.ReactNode, color: string, alert?: boolean }) => {
   return (
-    <div className={`p-8 bg-white border-2 rounded-[3.5rem] transition-all duration-500 ${alert ? 'border-rose-100 shadow-2xl shadow-rose-600/10 animate-pulse' : 'border-slate-100 shadow-sm hover:shadow-2xl group'}`}>
-      <div className="flex items-center justify-between mb-8">
-        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{title}</span>
-        <div className={`p-3.5 rounded-2xl transition-all ${alert ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : 'bg-slate-50 text-slate-400 group-hover:bg-blue-600 group-hover:text-white'}`}>
+    <div className={`p-8 bg-white border-2 rounded-[3.5rem] transition-all duration-500 min-w-0 ${alert ? 'border-rose-100 shadow-2xl shadow-rose-600/10' : 'border-slate-100 shadow-sm hover:shadow-2xl group'}`}>
+      <div className="flex items-center justify-between mb-8 overflow-hidden">
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] truncate">{title}</span>
+        <div className={`p-3.5 rounded-2xl transition-all shrink-0 ${alert ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : 'bg-slate-50 text-slate-400 group-hover:bg-blue-600 group-hover:text-white'}`}>
           {icon}
         </div>
       </div>
-      <div className={`text-5xl font-black tracking-tighter transition-colors ${alert ? 'text-rose-600' : 'text-slate-900 group-hover:text-blue-600'}`}>{value}</div>
-      {alert && <p className="mt-5 text-[10px] font-black text-rose-500 uppercase tracking-widest">Urgent Review</p>}
+      <div className={`text-4xl 2xl:text-5xl font-black tracking-tighter truncate transition-colors ${alert ? 'text-rose-600' : 'text-slate-900 group-hover:text-blue-600'}`}>
+        {value}
+      </div>
+      {alert && <p className="mt-5 text-[10px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Critical Level</p>}
     </div>
   );
 };
