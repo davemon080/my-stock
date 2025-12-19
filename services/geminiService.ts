@@ -9,13 +9,13 @@ export const getInventoryInsights = async (products: Product[]) => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const inventoryContext = products.map(p => 
-    `Product: ${p.name}, SKU: ${p.sku}, Category: ${p.category}, Qty: ${p.quantity}, Min Threshold: ${p.minThreshold}, Price: ₦${p.price}`
+    `Product: ${p.name}, SKU: ${p.sku}, Qty: ${p.quantity}, Min Threshold: ${p.minThreshold}, Price: ₦${p.price}`
   ).join('\n');
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Analyze the following store inventory and provide a concise summary (insight) and 3-5 specific actionable recommendations for the manager. Focus on stock-outs, low inventory, and potential sales opportunities.\n\nCurrent Inventory Data:\n${inventoryContext}`,
+      contents: `Analyze the following store inventory and provide a concise summary (insight) and 3-5 specific actionable recommendations for the manager. Focus on stock-outs, low inventory, and potential sales opportunities. Note that SKUs are formatted as FirstLetter+LastLetter+ID.\n\nCurrent Inventory Data:\n${inventoryContext}`,
       config: {
         systemInstruction: "You are a senior inventory management AI. You analyze product stock levels against thresholds and market prices to provide smart business advice. Return your findings strictly in JSON format.",
         responseMimeType: "application/json",
@@ -46,7 +46,6 @@ export const getInventoryInsights = async (products: Product[]) => {
     return JSON.parse(text);
   } catch (error) {
     console.error("Gemini Inventory Insight Error:", error);
-    // Graceful fallback if the API fails or returns unexpected data
     return {
       insight: "Automated analysis is currently unavailable. Please review low-stock alerts manually.",
       recommendations: [

@@ -1,25 +1,21 @@
 
 import React, { useState, useEffect } from 'react';
-import { Product, Category } from '../types.ts';
-import { CATEGORIES } from '../constants.tsx';
+import { Product } from '../types.ts';
 
 interface ProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (product: Omit<Product, 'id' | 'lastUpdated'>) => void;
+  onSave: (product: Omit<Product, 'id' | 'lastUpdated' | 'sku'>) => void;
   initialData?: Product | null;
 }
 
 const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
-  const [formData, setFormData] = useState<Omit<Product, 'id' | 'lastUpdated'>>({
-    sku: '',
+  const [formData, setFormData] = useState<Omit<Product, 'id' | 'lastUpdated' | 'sku'>>({
     name: '',
-    category: 'Produce',
     price: 0,
     quantity: 0,
     minThreshold: 5,
     expiryDate: '',
-    description: '',
     tags: []
   });
 
@@ -28,27 +24,21 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
   useEffect(() => {
     if (initialData) {
       setFormData({
-        sku: initialData.sku,
         name: initialData.name,
-        category: initialData.category,
         price: initialData.price,
         quantity: initialData.quantity,
         minThreshold: initialData.minThreshold,
         expiryDate: initialData.expiryDate || '',
-        description: initialData.description || '',
         tags: initialData.tags || []
       });
       setTagsString((initialData.tags || []).join(', '));
     } else if (isOpen) {
       setFormData({
-        sku: '',
         name: '',
-        category: 'Produce',
         price: 0,
         quantity: 0,
         minThreshold: 5,
         expiryDate: '',
-        description: '',
         tags: []
       });
       setTagsString('');
@@ -86,44 +76,19 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
         
         <form onSubmit={handleSubmit} className="space-y-8">
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Name</label>
-                <input 
-                  type="text" 
-                  required
-                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all placeholder:text-slate-300"
-                  value={formData.name}
-                  onChange={e => setFormData({...formData, name: e.target.value})}
-                  placeholder="e.g. Fuji Apples"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">SKU Code</label>
-                <input 
-                  type="text" 
-                  required
-                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all placeholder:text-slate-300"
-                  value={formData.sku}
-                  onChange={e => setFormData({...formData, sku: e.target.value.toUpperCase()})}
-                  placeholder="PR-100"
-                />
-              </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Name</label>
+              <input 
+                type="text" 
+                required
+                className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all placeholder:text-slate-300"
+                value={formData.name}
+                onChange={e => setFormData({...formData, name: e.target.value})}
+                placeholder="e.g. Fuji Apples"
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
-                <select 
-                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
-                  value={formData.category}
-                  onChange={e => setFormData({...formData, category: e.target.value as Category})}
-                >
-                  {CATEGORIES.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit Price (₦)</label>
                 <input 
@@ -132,6 +97,15 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                   className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
                   value={formData.price}
                   onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Expiry Date (Optional)</label>
+                <input 
+                  type="date" 
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
+                  value={formData.expiryDate}
+                  onChange={e => setFormData({...formData, expiryDate: e.target.value})}
                 />
               </div>
             </div>
@@ -160,12 +134,13 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Product Description</label>
-              <textarea 
-                className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all resize-none h-32"
-                value={formData.description || ''}
-                onChange={e => setFormData({...formData, description: e.target.value})}
-                placeholder="Details about product sourcing, quality, or usage..."
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Search Tags (Comma separated)</label>
+              <input 
+                type="text" 
+                className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
+                value={tagsString}
+                onChange={e => setTagsString(e.target.value)}
+                placeholder="organic, fresh, imported"
               />
             </div>
           </div>

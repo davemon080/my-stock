@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Product, UserRole, InventoryStats, Category, Transaction } from './types.ts';
-import { INITIAL_PRODUCTS, CATEGORIES, ICONS } from './constants.tsx';
+import { Product, UserRole, InventoryStats, Transaction } from './types.ts';
+import { INITIAL_PRODUCTS, ICONS } from './constants.tsx';
 import Fuse from 'fuse.js';
 import ProductModal from './components/ProductModal.tsx';
 import { getInventoryInsights } from './services/geminiService.ts';
@@ -23,12 +23,12 @@ const App: React.FC = () => {
 
   // Data Persistence
   const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('sm_inventory_v7');
+    const saved = localStorage.getItem('sm_inventory_v8');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
   
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('sm_transactions_v7');
+    const saved = localStorage.getItem('sm_transactions_v8');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -44,13 +44,20 @@ const App: React.FC = () => {
   });
   const [loadingInsights, setLoadingInsights] = useState(false);
 
+  // SKU Counter for automatic generation
+  const [skuCounter, setSkuCounter] = useState(() => {
+    const saved = localStorage.getItem('sm_sku_counter');
+    return saved ? parseInt(saved) : INITIAL_PRODUCTS.length + 1;
+  });
+
   // Persistence
   useEffect(() => {
-    localStorage.setItem('sm_inventory_v7', JSON.stringify(products));
-  }, [products]);
+    localStorage.setItem('sm_inventory_v8', JSON.stringify(products));
+    localStorage.setItem('sm_sku_counter', skuCounter.toString());
+  }, [products, skuCounter]);
 
   useEffect(() => {
-    localStorage.setItem('sm_transactions_v7', JSON.stringify(transactions));
+    localStorage.setItem('sm_transactions_v8', JSON.stringify(transactions));
   }, [transactions]);
 
   // AI Analysis
@@ -91,7 +98,7 @@ const App: React.FC = () => {
 
   // Search Logic
   const fuse = useMemo(() => new Fuse(products, { 
-    keys: ['name', 'sku', 'category'], 
+    keys: ['name', 'sku', 'tags'], 
     threshold: 0.3 
   }), [products]);
   
@@ -178,15 +185,31 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveProduct = (productData: Omit<Product, 'id' | 'lastUpdated'>) => {
+  const generateSku = (name: string, seq: number) => {
+    const first = name.charAt(0).toUpperCase() || 'X';
+    const last = name.charAt(name.length - 1).toUpperCase() || 'X';
+    const num = seq.toString().padStart(3, '0');
+    return `${first}${last}${num}`;
+  };
+
+  const handleSaveProduct = (productData: Omit<Product, 'id' | 'lastUpdated' | 'sku'>) => {
     const now = new Date().toISOString();
     if (editingProduct) {
       setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...productData, lastUpdated: now } : p));
     } else {
-      setProducts(prev => [...prev, { ...productData, id: Math.random().toString(36).substr(2, 9), lastUpdated: now }]);
+      const newSku = generateSku(productData.name, skuCounter);
+      setProducts(prev => [...prev, { ...productData, id: Math.random().toString(36).substr(2, 9), sku: newSku, lastUpdated: now }]);
+      setSkuCounter(prev => prev + 1);
     }
     setIsModalOpen(false);
     setEditingProduct(null);
+  };
+
+  const deleteProduct = (id: string) => {
+    if (window.confirm("Are you sure you want to permanently delete this product?")) {
+      setProducts(prev => prev.filter(p => p.id !== id));
+      setCart(prev => prev.filter(item => item.id !== id));
+    }
   };
 
   return (
@@ -230,7 +253,7 @@ const App: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xl font-black italic tracking-tighter leading-tight">SUPERMART</h1>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Inventory v2.0</p>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">POS System v3.1</p>
           </div>
         </div>
 
@@ -280,7 +303,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className="p-2.5 bg-slate-100 rounded-xl text-slate-600 lg:hidden active:scale-95 transition-all">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
-            <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">{activeTab}</h2>
+            <h2 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight">{activeTab === 'Register' ? 'Checkout' : activeTab}</h2>
           </div>
           
           <div className="flex items-center gap-4">
@@ -395,9 +418,9 @@ const App: React.FC = () => {
                   <table className="w-full text-left min-w-[800px]">
                     <thead className="bg-slate-50/50 border-b border-slate-100">
                       <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                        <th className="px-10 py-8">Product Details</th>
-                        <th className="px-10 py-8">Category</th>
-                        <th className="px-10 py-8">Price</th>
+                        <th className="px-10 py-8">Product Name</th>
+                        <th className="px-10 py-8">SKU Identifier</th>
+                        <th className="px-10 py-8">Unit Price</th>
                         <th className="px-10 py-8">Stock Level</th>
                         <th className="px-10 py-8 text-right">Actions</th>
                       </tr>
@@ -407,10 +430,9 @@ const App: React.FC = () => {
                         <tr key={p.id} className="group hover:bg-blue-50/20 transition-all duration-300">
                           <td className="px-10 py-8">
                             <div className="font-black text-slate-900 text-md">{p.name}</div>
-                            <div className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{p.sku}</div>
                           </td>
                           <td className="px-10 py-8">
-                            <span className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase tracking-widest">{p.category}</span>
+                            <span className="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-full text-[10px] font-black uppercase tracking-widest">{p.sku}</span>
                           </td>
                           <td className="px-10 py-8 font-black text-slate-900 text-sm">₦{p.price.toLocaleString()}</td>
                           <td className="px-10 py-8">
@@ -424,9 +446,14 @@ const App: React.FC = () => {
                           </td>
                           <td className="px-10 py-8 text-right">
                             {role === 'Admin' ? (
-                              <button onClick={() => {setEditingProduct(p); setIsModalOpen(true);}} className="p-3 bg-slate-900 text-white rounded-2xl hover:bg-blue-600 transition-all active:scale-90">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                              </button>
+                              <div className="flex items-center justify-end gap-3">
+                                <button onClick={() => {setEditingProduct(p); setIsModalOpen(true);}} className="p-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-blue-600 hover:text-white transition-all active:scale-90">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                </button>
+                                <button onClick={() => deleteProduct(p.id)} className="p-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-rose-600 hover:text-white transition-all active:scale-90">
+                                  <ICONS.Trash />
+                                </button>
+                              </div>
                             ) : (
                               <span className="text-[10px] font-black text-slate-200 uppercase tracking-widest italic">Protected</span>
                             )}
@@ -442,90 +469,94 @@ const App: React.FC = () => {
 
           {activeTab === 'Register' && (
             <div className="flex h-full animate-in fade-in slide-in-from-right-4 duration-500 overflow-hidden relative">
-               {/* Product Grid Area */}
+               {/* Product Grid Area - Enhanced Desktop View */}
                <div className="flex-1 flex flex-col min-w-0 bg-slate-100/40">
-                 <div className="p-6 md:p-10 bg-white border-b border-slate-100 flex flex-col md:flex-row gap-6 shadow-sm z-10">
-                    <div className="flex-1 relative group">
-                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600"><ICONS.Search /></span>
+                 <div className="p-6 md:p-8 bg-white border-b border-slate-100 flex items-center justify-between shadow-sm z-10">
+                    <div className="flex-1 max-w-2xl relative group">
+                      <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-600 transition-colors"><ICONS.Search /></span>
                       <input 
                         type="text" 
-                        placeholder="Search or scan SKU..." 
-                        className="w-full pl-16 pr-8 py-5 text-md font-bold bg-slate-50 border-2 border-transparent rounded-[2rem] focus:bg-white focus:border-blue-600 outline-none transition-all"
+                        placeholder="Scan SKU or type product name..." 
+                        className="w-full pl-16 pr-8 py-4.5 text-md font-bold bg-slate-50 border-2 border-transparent rounded-[1.5rem] focus:bg-white focus:border-blue-600 outline-none transition-all shadow-inner"
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                         autoFocus
                       />
                     </div>
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 md:pb-0">
-                      {['All Items', ...CATEGORIES.slice(0, 3)].map(cat => (
-                        <button key={cat} className="px-6 py-4 bg-white border-2 border-slate-100 rounded-2xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap hover:border-blue-600 transition-all">
-                          {cat}
-                        </button>
-                      ))}
+                    <div className="hidden xl:flex items-center gap-6 ml-10">
+                       <div className="text-right">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Available SKUs</p>
+                          <p className="text-xl font-black text-slate-900">{products.length}</p>
+                       </div>
                     </div>
                  </div>
                  
-                 <div className="flex-1 p-6 md:p-10 overflow-y-auto custom-scrollbar grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-max">
+                 <div className="flex-1 p-6 md:p-10 overflow-y-auto custom-scrollbar grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-8 auto-rows-max">
                     {filteredProducts.map(p => (
                       <button 
                         key={p.id}
                         disabled={p.quantity <= 0}
                         onClick={() => addToCart(p)}
-                        className={`p-6 bg-white border-2 border-transparent rounded-[2.5rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 grayscale cursor-not-allowed' : 'shadow-sm'}`}
+                        className={`p-8 bg-white border-2 border-transparent rounded-[3rem] text-left hover:border-blue-600 hover:shadow-2xl transition-all group relative active:scale-[0.98] ${p.quantity <= 0 ? 'opacity-40 grayscale cursor-not-allowed' : 'shadow-sm'}`}
                       >
                         <div className="flex justify-between items-start mb-6">
-                          <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-xl text-[9px] font-black uppercase tracking-widest">{p.category}</span>
-                          <span className="text-lg font-black text-slate-900">₦{p.price.toLocaleString()}</span>
+                           <div className="text-xl font-black text-slate-900">₦{p.price.toLocaleString()}</div>
+                           <div className={`px-3 py-1.5 rounded-xl text-[10px] font-black tracking-tighter ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                              {p.quantity} UNITS
+                           </div>
                         </div>
-                        <h4 className="text-md font-black text-slate-800 mb-1 leading-tight line-clamp-2">{p.name}</h4>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">{p.sku}</p>
+                        <h4 className="text-lg font-black text-slate-800 mb-2 leading-tight line-clamp-2">{p.name}</h4>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{p.sku}</p>
                         
                         <div className="mt-8 flex items-center justify-between">
-                           <div className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>
-                              {p.quantity} IN STOCK
-                           </div>
-                           <div className="p-2.5 bg-blue-600 text-white rounded-2xl opacity-0 group-hover:opacity-100 lg:group-hover:translate-y-0 translate-y-2 transition-all shadow-lg shadow-blue-600/40">
+                           <div className="p-3 bg-blue-600 text-white rounded-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all shadow-lg shadow-blue-600/40">
                               <ICONS.Plus />
                            </div>
+                           <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest group-hover:text-blue-600 transition-colors">Add to basket</span>
                         </div>
-                        {p.quantity <= 0 && <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 font-black text-rose-600 uppercase text-xs tracking-widest rounded-[2.5rem]">STOCK OUT</div>}
+                        {p.quantity <= 0 && <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/60 font-black text-rose-600 uppercase text-sm tracking-[0.2em] rounded-[3rem]">STOCK OUT</div>}
                       </button>
                     ))}
+                    {filteredProducts.length === 0 && (
+                      <div className="col-span-full py-20 text-center">
+                        <p className="text-slate-400 font-bold italic">No matching products found in catalog.</p>
+                      </div>
+                    )}
                  </div>
                </div>
 
-               {/* Cart Panel - Mobile Responsive */}
-               <div className={`fixed lg:static inset-y-0 right-0 z-[60] w-full sm:w-[450px] lg:w-[400px] xl:w-[450px] bg-white flex flex-col shadow-[-20px_0_60px_rgba(0,0,0,0.1)] transition-transform duration-500 transform ${isMobileCartOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
+               {/* Cart Panel - Aligned to right side for Desktop */}
+               <div className={`fixed lg:static inset-y-0 right-0 z-[60] w-full sm:w-[450px] lg:w-[420px] 2xl:w-[480px] bg-white flex flex-col shadow-[-20px_0_60px_rgba(0,0,0,0.1)] transition-transform duration-500 transform ${isMobileCartOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
                   <div className="p-10 border-b border-slate-100 flex items-center justify-between shrink-0">
                      <div className="flex items-center gap-4">
                         <button onClick={() => setIsMobileCartOpen(false)} className="lg:hidden p-3 bg-slate-100 rounded-2xl text-slate-500">
                           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
                         </button>
-                        <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Current Sale</h3>
+                        <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">Order Basket</h3>
                      </div>
-                     <span className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-2xl text-sm font-black shadow-lg shadow-blue-600/30">{cart.length}</span>
+                     <span className="w-12 h-12 flex items-center justify-center bg-blue-600 text-white rounded-2xl text-md font-black shadow-lg shadow-blue-600/30">{cart.length}</span>
                   </div>
 
                   <div className="flex-1 p-8 md:p-10 overflow-y-auto custom-scrollbar space-y-5">
                      {cart.length === 0 ? (
                        <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-20">
-                          <div className="p-10 mb-8 bg-slate-100 rounded-[3rem]"><ICONS.Register /></div>
-                          <p className="text-sm font-black uppercase tracking-widest text-slate-800">Basket is empty</p>
+                          <div className="p-10 mb-8 bg-slate-100 rounded-[3.5rem]"><ICONS.Register /></div>
+                          <p className="text-sm font-black uppercase tracking-[0.2em] text-slate-800">Your basket is empty</p>
                        </div>
                      ) : (
                        cart.map(item => (
-                         <div key={item.id} className="p-6 bg-slate-50 border border-slate-200 rounded-[2.5rem] flex items-center gap-4 hover:shadow-xl hover:shadow-slate-200/50 transition-all">
+                         <div key={item.id} className="p-6 bg-slate-50 border border-slate-200 rounded-[2.5rem] flex items-center gap-6 hover:shadow-xl transition-all">
                             <div className="flex-1 min-w-0">
-                               <p className="text-sm font-black text-slate-900 truncate leading-tight">{item.name}</p>
-                               <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">₦{item.price.toLocaleString()} Each</p>
+                               <p className="text-md font-black text-slate-900 truncate leading-tight">{item.name}</p>
+                               <p className="text-[10px] font-bold text-slate-400 mt-1.5 uppercase">₦{item.price.toLocaleString()}</p>
                             </div>
-                            <div className="flex items-center gap-2.5 p-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm">
-                               <button onClick={() => updateCartQty(item.id, -1)} className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-black transition-all">-</button>
-                               <span className="w-8 text-center text-xs font-black">{item.cartQuantity}</span>
-                               <button onClick={() => updateCartQty(item.id, 1)} className="w-8 h-8 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-black transition-all">+</button>
+                            <div className="flex items-center gap-3 p-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm">
+                               <button onClick={() => updateCartQty(item.id, -1)} className="w-9 h-9 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-sm font-black transition-all">-</button>
+                               <span className="w-8 text-center text-sm font-black">{item.cartQuantity}</span>
+                               <button onClick={() => updateCartQty(item.id, 1)} className="w-9 h-9 flex items-center justify-center bg-slate-50 hover:bg-slate-100 rounded-xl text-sm font-black transition-all">+</button>
                             </div>
                             <button onClick={() => removeFromCart(item.id)} className="p-3 text-slate-300 hover:text-rose-500 transition-colors">
-                               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                             </button>
                          </div>
                        ))
@@ -535,20 +566,20 @@ const App: React.FC = () => {
                   <div className="p-10 bg-slate-50/50 border-t border-slate-100 shrink-0">
                      <div className="mb-10 space-y-4">
                         <div className="flex items-center justify-between text-[11px] font-black text-slate-400 uppercase tracking-widest">
-                           <span>Subtotal</span>
+                           <span>Tax Inclusive Total</span>
                            <span>₦{cartTotal.toLocaleString()}</span>
                         </div>
                         <div className="flex items-end justify-between">
-                           <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Total Pay</span>
-                           <span className="text-4xl font-black text-blue-600 tracking-tighter">₦{cartTotal.toLocaleString()}</span>
+                           <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.2em] mb-3">Payable</span>
+                           <span className="text-5xl font-black text-blue-600 tracking-tighter">₦{cartTotal.toLocaleString()}</span>
                         </div>
                      </div>
                      <button 
                         disabled={cart.length === 0}
                         onClick={completeCheckout}
-                        className="w-full py-6 text-sm font-black text-white uppercase tracking-widest transition-all bg-blue-600 shadow-2xl rounded-[2.5rem] hover:bg-blue-700 active:scale-95 disabled:opacity-30 shadow-blue-600/40"
+                        className="w-full py-7 text-sm font-black text-white uppercase tracking-[0.2em] transition-all bg-blue-600 shadow-2xl rounded-[3rem] hover:bg-blue-700 active:scale-95 disabled:opacity-30 shadow-blue-600/40"
                      >
-                        Finalize & Print Receipt
+                        Finalize Checkout
                      </button>
                   </div>
                </div>
@@ -569,15 +600,15 @@ const App: React.FC = () => {
 
 const StatCard = ({ title, value, icon, color, alert }: { title: string, value: any, icon: React.ReactNode, color: string, alert?: boolean }) => {
   return (
-    <div className={`p-8 bg-white border-2 rounded-[3rem] transition-all duration-500 ${alert ? 'border-rose-100 shadow-2xl shadow-rose-600/10 animate-pulse' : 'border-slate-100 shadow-sm hover:shadow-2xl hover:shadow-slate-200/50 hover:border-blue-100 group'}`}>
-      <div className="flex items-center justify-between mb-6">
-        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</span>
-        <div className={`p-3 rounded-2xl transition-all ${alert ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : 'bg-slate-50 text-slate-400 group-hover:bg-blue-600 group-hover:text-white'}`}>
+    <div className={`p-8 bg-white border-2 rounded-[3.5rem] transition-all duration-500 ${alert ? 'border-rose-100 shadow-2xl shadow-rose-600/10 animate-pulse' : 'border-slate-100 shadow-sm hover:shadow-2xl group'}`}>
+      <div className="flex items-center justify-between mb-8">
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{title}</span>
+        <div className={`p-3.5 rounded-2xl transition-all ${alert ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : 'bg-slate-50 text-slate-400 group-hover:bg-blue-600 group-hover:text-white'}`}>
           {icon}
         </div>
       </div>
-      <div className={`text-4xl font-black tracking-tighter transition-colors ${alert ? 'text-rose-600' : 'text-slate-900 group-hover:text-blue-600'}`}>{value}</div>
-      {alert && <p className="mt-4 text-[10px] font-black text-rose-500 uppercase tracking-widest">Action Required</p>}
+      <div className={`text-5xl font-black tracking-tighter transition-colors ${alert ? 'text-rose-600' : 'text-slate-900 group-hover:text-blue-600'}`}>{value}</div>
+      {alert && <p className="mt-5 text-[10px] font-black text-rose-500 uppercase tracking-widest">Urgent Review</p>}
     </div>
   );
 };
