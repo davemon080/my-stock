@@ -26,7 +26,6 @@ const App: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isBasketOpen, setIsBasketOpen] = useState(false);
   const [receiptToShow, setReceiptToShow] = useState<Transaction | null>(null);
-  const [revenueFilter, setRevenueFilter] = useState<DateFilter>('All');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
 
@@ -51,26 +50,28 @@ const App: React.FC = () => {
   };
 
   // Initial Load
-  useEffect(() => {
-    const init = async () => {
-      try {
-        const [appConfig, branches, sellers] = await Promise.all([
-          db.getConfig(),
-          db.getBranches(),
-          db.getSellers()
-        ]);
-        const fullConfig = { ...config, ...appConfig, branches, sellers };
-        setConfig(fullConfig);
-        if (branches.length > 0) {
-          setSelectedBranchId(branches[0].id);
-        }
-      } catch (err) {
-        showToast("Database synchronization failed", "error");
-      } finally {
-        setIsInitializing(false);
+  const initApp = async () => {
+    setIsInitializing(true);
+    try {
+      const [appConfig, branches, sellers] = await Promise.all([
+        db.getConfig(),
+        db.getBranches(),
+        db.getSellers()
+      ]);
+      const fullConfig = { ...config, ...appConfig, branches, sellers };
+      setConfig(fullConfig);
+      if (branches.length > 0) {
+        setSelectedBranchId(branches[0].id);
       }
-    };
-    init();
+    } catch (err) {
+      showToast("Database synchronization failed", "error");
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  useEffect(() => {
+    initApp();
   }, []);
 
   // Fetch branch specific data when context changes
@@ -161,6 +162,34 @@ const App: React.FC = () => {
     });
   };
 
+  const handleWipeDatabase = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: "FACTORY RESET SYSTEM?",
+      message: "WARNING: This will permanently erase ALL branches, staff, products, and transaction history. This action CANNOT be undone.",
+      onConfirm: async () => {
+        setConfirmModal({
+          isOpen: true,
+          title: "FINAL WARNING",
+          message: "You are about to wipe the entire enterprise database. The system will be reset to factory defaults. Proceed with absolute certainty?",
+          onConfirm: async () => {
+            setConfirmModal(null);
+            setIsInitializing(true);
+            try {
+              await db.wipeAllData();
+              showToast("System Factory Reset Complete", "success");
+              setCurrentUser(null);
+              await initApp();
+            } catch (e) {
+              showToast("Reset Failed: Internal Server Error", "error");
+              setIsInitializing(false);
+            }
+          }
+        });
+      }
+    });
+  };
+
   // Register Operations
   const [searchTerm, setSearchTerm] = useState('');
   const [searchTermTransactions, setSearchTermTransactions] = useState('');
@@ -209,7 +238,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center flex-col gap-6">
         <div className="loader-ring"></div>
-        <p className="text-slate-500 font-black uppercase text-[10px] tracking-widest animate-pulse">Establishing PostgreSQL Link...</p>
+        <p className="text-slate-500 font-black uppercase text-[10px] tracking-widest animate-pulse">Synchronizing Cloud Environment...</p>
       </div>
     );
   }
@@ -277,7 +306,7 @@ const App: React.FC = () => {
       {/* Confirmation Overlay */}
       {confirmModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-           <div className="w-full max-w-sm bg-white rounded-[2.5rem] p-10 shadow-2xl">
+           <div className="w-full max-sm bg-white rounded-[2.5rem] p-10 shadow-2xl">
               <h3 className="text-xl font-black text-slate-900 mb-4 uppercase">{confirmModal.title}</h3>
               <p className="text-sm font-bold text-slate-500 mb-10 leading-relaxed">{confirmModal.message}</p>
               <div className="flex gap-4">
@@ -458,11 +487,6 @@ const App: React.FC = () => {
                               </td>
                            </tr>
                          ))}
-                         {filteredProducts.length === 0 && (
-                           <tr>
-                             <td colSpan={5} className="py-20 text-center text-slate-300 font-black uppercase tracking-widest italic">Inventory Registry Empty</td>
-                           </tr>
-                         )}
                       </tbody>
                    </table>
                 </div>
@@ -481,7 +505,6 @@ const App: React.FC = () => {
                       <div className="text-xl font-black text-slate-900 mb-2 leading-none">₦{p.price.toLocaleString()}</div>
                       <h4 className="text-xs font-black text-slate-800 mb-1 leading-tight line-clamp-2 min-h-[1.5rem] uppercase">{p.name}</h4>
                       <div className={`mt-4 px-2 py-0.5 rounded-lg text-[8px] font-black w-fit ${p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'}`}>{p.quantity} In Stock</div>
-                      {p.quantity <= 0 && <div className="absolute inset-0 bg-white/70 flex items-center justify-center font-black text-rose-600 uppercase tracking-widest text-[10px]">OUT OF STOCK</div>}
                    </button>
                  ))}
                </div>
@@ -493,7 +516,7 @@ const App: React.FC = () => {
                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="relative w-full max-w-md">
                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                     <input type="text" placeholder="Search receipts by ID or items..." className="w-full pl-12 pr-6 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold shadow-sm" value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
+                     <input type="text" placeholder="Search receipts..." className="w-full pl-12 pr-6 py-3 bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold shadow-sm" value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
                   </div>
                </div>
                <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-sm overflow-x-auto">
@@ -502,8 +525,8 @@ const App: React.FC = () => {
                         <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                            <th className="px-10 py-6">Ref ID</th>
                            <th className="px-10 py-6">Timestamp</th>
-                           <th className="px-10 py-6">Sale Value</th>
-                           <th className="px-10 py-6 text-right">Invoice / Print</th>
+                           <th className="px-10 py-6">Value</th>
+                           <th className="px-10 py-6 text-right">Actions</th>
                         </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
@@ -511,19 +534,14 @@ const App: React.FC = () => {
                           t.id.toLowerCase().includes(searchTermTransactions.toLowerCase()) ||
                           t.items.some(i => i.name.toLowerCase().includes(searchTermTransactions.toLowerCase()))
                         ).map(t => (
-                          <tr key={t.id} className="hover:bg-blue-50/10 transition-colors">
+                          <tr key={t.id} className="hover:bg-blue-50/10">
                              <td className="px-10 py-6 font-black text-slate-900">#{t.id}</td>
                              <td className="px-10 py-6 text-xs text-slate-500 font-bold">{new Date(t.timestamp).toLocaleString()}</td>
                              <td className="px-10 py-6 font-black text-blue-600">₦{t.total.toLocaleString()}</td>
                              <td className="px-10 py-6 text-right">
-                                <div className="flex justify-end gap-2">
-                                  <button onClick={() => setReceiptToShow(t)} title="View Receipt" className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-blue-600 hover:text-white transition-all active:scale-95">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                                  </button>
-                                  <button onClick={() => { setReceiptToShow(t); setTimeout(() => window.print(), 200); }} title="Direct Print" className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-emerald-600 hover:text-white transition-all active:scale-95">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
-                                  </button>
-                                </div>
+                                <button onClick={() => setReceiptToShow(t)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-emerald-600 hover:text-white transition-all active:scale-95">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>
+                                </button>
                              </td>
                           </tr>
                         ))}
@@ -574,7 +592,8 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Settings' && currentUser.role === 'Admin' && (
-            <div className="max-w-4xl mx-auto space-y-10 pb-20">
+            <div className="max-w-4xl mx-auto space-y-10 pb-40">
+               {/* Branch Management */}
                <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
                   <h3 className="text-2xl font-black mb-8 uppercase tracking-tight flex items-center gap-3 text-slate-500">
                     Network Provisioning
@@ -593,14 +612,49 @@ const App: React.FC = () => {
                     const branches = await db.getBranches();
                     setConfig({ ...config, branches });
                     form.reset();
-                    showToast("New Node Provisions", "success");
-                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    showToast("New Branch Link Established", "success");
+                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                     <input name="branchName" required placeholder="Branch Trading Name" className="px-6 py-4 bg-slate-50 border-2 rounded-2xl outline-none font-bold focus:border-blue-600" />
                     <input name="branchLoc" required placeholder="Geo-Physical Location" className="px-6 py-4 bg-slate-50 border-2 rounded-2xl outline-none font-bold focus:border-blue-600" />
-                    <button type="submit" className="sm:col-span-2 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] active:scale-95 transition-all">Establish Branch Link</button>
+                    <button type="submit" className="sm:col-span-2 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] active:scale-95 transition-all">Provision New Node</button>
                   </form>
+                  
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-4">Active System Nodes</p>
+                    {config.branches.map(b => (
+                      <div key={b.id} className="p-5 bg-slate-50 border border-slate-100 rounded-[2rem] flex items-center justify-between group hover:bg-white hover:border-blue-200 transition-all">
+                        <div>
+                          <p className="font-black text-sm text-slate-900">{b.name}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{b.location}</p>
+                        </div>
+                        {config.branches.length > 1 && (
+                          <button 
+                            onClick={() => {
+                              setConfirmModal({
+                                isOpen: true,
+                                title: "Decommission Branch?",
+                                message: `Are you sure you want to shut down '${b.name}'? This will erase all inventory and sales data for this specific location.`,
+                                onConfirm: async () => {
+                                  await db.deleteBranch(b.id);
+                                  const branches = await db.getBranches();
+                                  setConfig({ ...config, branches });
+                                  if (selectedBranchId === b.id) setSelectedBranchId(branches[0].id);
+                                  setConfirmModal(null);
+                                  showToast("Branch Link Terminated", "info");
+                                }
+                              });
+                            }}
+                            className="p-3 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all active:scale-90"
+                          >
+                            <ICONS.Trash />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                </div>
 
+               {/* Staff Management */}
                <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
                   <h3 className="text-2xl font-black mb-8 uppercase tracking-tight text-slate-500">Staff Deployment</h3>
                   <form onSubmit={async (e) => {
@@ -619,52 +673,88 @@ const App: React.FC = () => {
                     setConfig({ ...config, sellers });
                     form.reset();
                     showToast(`${seller.name} deployed`, "success");
-                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                     <input name="staffName" required placeholder="Staff Full Name" className="px-6 py-4 bg-slate-50 border-2 rounded-2xl font-bold" />
                     <input name="staffEmail" required type="email" placeholder="Staff Email" className="px-6 py-4 bg-slate-50 border-2 rounded-2xl font-bold" />
                     <input name="staffPin" required placeholder="Security Access Pin" className="px-6 py-4 bg-slate-50 border-2 rounded-2xl font-bold" />
                     <select name="staffBranch" required className="px-6 py-4 bg-slate-50 border-2 rounded-2xl font-bold">
                        {config.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
-                    <button type="submit" className="sm:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] active:scale-95 transition-all">Grant System Authorization</button>
+                    <button type="submit" className="sm:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] active:scale-95 transition-all">Authorize Personnel</button>
                   </form>
-                  <div className="mt-8 space-y-2">
+                  
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-4">Active Field Staff</p>
                     {config.sellers.map(s => (
-                      <div key={s.id} className="p-4 bg-slate-50 rounded-2xl flex items-center justify-between">
-                        <span className="font-black text-xs">{s.name} <span className="text-slate-400 font-bold ml-2">({config.branches.find(b => b.id === s.branchId)?.name})</span></span>
+                      <div key={s.id} className="p-5 bg-slate-50 border border-slate-100 rounded-[2rem] flex items-center justify-between group hover:bg-white hover:border-blue-200 transition-all">
+                        <div>
+                          <p className="font-black text-sm text-slate-900">{s.name}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                            {config.branches.find(b => b.id === s.branchId)?.name || 'Unknown Node'} • {s.email}
+                          </p>
+                        </div>
                         <button onClick={async () => {
                           await db.deleteSeller(s.id);
                           const sellers = await db.getSellers();
                           setConfig({...config, sellers});
-                          showToast("Staff Authorization Revoked", "info");
-                        }} className="p-2 text-rose-400 hover:text-rose-600"><ICONS.Trash /></button>
+                          showToast("Staff Access Revoked", "info");
+                        }} className="p-3 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-all active:scale-90">
+                          <ICONS.Trash />
+                        </button>
                       </div>
                     ))}
                   </div>
                </div>
                
+               {/* Identity Configuration */}
                <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-sm">
-                  <h3 className="text-2xl font-black mb-8 uppercase tracking-tight text-slate-500">Identity & Security</h3>
+                  <h3 className="text-2xl font-black mb-8 uppercase tracking-tight text-slate-500">Cloud Identity</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
-                       <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Global Store Name</label>
+                       <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Enterprise Name</label>
                        <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border-2 rounded-xl font-bold" />
                     </div>
                     <div>
-                       <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Administrator Master Pin</label>
+                       <label className="text-[10px] font-black text-slate-400 uppercase block mb-2">Master Terminal Pin</label>
                        <input type="password" value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className="w-full px-5 py-3.5 bg-slate-50 border-2 rounded-xl font-bold" />
                     </div>
                     <button onClick={async () => {
                       await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword);
-                      showToast("Identity Synchronized", "success");
-                    }} className="sm:col-span-2 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all">Finalize Cloud Branding</button>
+                      showToast("Branding Synchronized", "success");
+                    }} className="sm:col-span-2 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] shadow-lg active:scale-95 transition-all">Commit Global Settings</button>
+                  </div>
+               </div>
+
+               {/* Danger Zone */}
+               <div className="bg-rose-50/50 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 shadow-sm">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="p-3 bg-rose-600 text-white rounded-2xl">
+                       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black uppercase tracking-tight text-rose-600">Danger Zone</h3>
+                      <p className="text-[10px] font-bold text-rose-400 uppercase tracking-widest">Permanent Deletion Hub</p>
+                    </div>
+                  </div>
+                  
+                  <div className="p-8 bg-white/60 border border-rose-100 rounded-[2.5rem] flex flex-col sm:flex-row items-center justify-between gap-8">
+                    <div className="max-w-md text-center sm:text-left">
+                       <p className="font-black text-rose-950 uppercase text-sm mb-2">Wipe Entire System Database</p>
+                       <p className="text-xs font-bold text-rose-500 leading-relaxed">This will erase all branches, products, staff accounts, and financial history. This action is irreversible.</p>
+                    </div>
+                    <button 
+                      onClick={handleWipeDatabase}
+                      className="w-full sm:w-auto px-10 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-rose-600/30 hover:bg-rose-700 active:scale-95 transition-all"
+                    >
+                      Factory Reset DB
+                    </button>
                   </div>
                </div>
             </div>
           )}
         </div>
 
-        {/* Sales Basket Overlay - UPDATED RESPONSIVENESS AND ALIGNMENT */}
+        {/* Sales Basket Overlay */}
         {isBasketOpen && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300">
             <div className="w-full max-w-4xl h-full sm:max-h-[85vh] bg-white rounded-none sm:rounded-[4rem] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95 duration-300">
@@ -680,68 +770,29 @@ const App: React.FC = () => {
                
                <div className="flex-1 p-4 sm:p-8 overflow-y-auto custom-scrollbar space-y-4 bg-slate-50/30">
                   {cart.map(item => (
-                    <div key={item.id} className="p-5 sm:p-6 bg-white border border-slate-100 rounded-[2rem] sm:rounded-[2.5rem] flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-6 shadow-sm hover:shadow-md transition-shadow">
+                    <div key={item.id} className="p-5 sm:p-6 bg-white border border-slate-100 rounded-[2rem] flex flex-col sm:flex-row items-start sm:items-center gap-4 shadow-sm">
                        <div className="flex-1 min-w-0 w-full">
                           <p className="text-base sm:text-lg font-black uppercase text-slate-900 truncate leading-tight">{item.name}</p>
                           <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">SKU: {item.sku}</p>
                        </div>
-                       
                        <div className="flex items-center justify-between w-full sm:w-auto gap-4">
-                          <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-2xl border border-slate-100">
-                             <button 
-                                onClick={() => { 
-                                  setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: Math.max(0, i.cartQuantity - 1) } : i).filter(i => i.cartQuantity > 0));
-                                }} 
-                                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black text-slate-900 hover:text-blue-600 transition-colors shadow-sm active:scale-90"
-                             >-</button>
-                             <span className="w-10 text-center font-black text-slate-900">{item.cartQuantity}</span>
-                             <button 
-                                onClick={() => {
-                                  setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: i.cartQuantity + 1 } : i));
-                                }} 
-                                className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black text-slate-900 hover:text-blue-600 transition-colors shadow-sm active:scale-90"
-                             >+</button>
+                          <div className="flex items-center gap-2 p-1.5 bg-slate-50 rounded-2xl border">
+                             <button onClick={() => setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: Math.max(0, i.cartQuantity - 1) } : i).filter(i => i.cartQuantity > 0))} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black">-</button>
+                             <span className="w-10 text-center font-black">{item.cartQuantity}</span>
+                             <button onClick={() => setCart(prev => prev.map(i => i.id === item.id ? { ...i, cartQuantity: i.cartQuantity + 1 } : i))} className="w-10 h-10 flex items-center justify-center bg-white rounded-xl font-black">+</button>
                           </div>
-                          
-                          <div className="text-right min-w-[120px]">
-                            <p className="text-[9px] font-black text-slate-400 uppercase mb-0.5 sm:hidden">Subtotal</p>
-                            <span className="font-black text-xl text-slate-900">₦{(item.price * item.cartQuantity).toLocaleString()}</span>
-                          </div>
-                          
-                          <button 
-                            onClick={() => setCart(prev => prev.filter(i => i.id !== item.id))} 
-                            className="p-3 text-slate-300 hover:text-rose-500 transition-colors active:scale-90"
-                            title="Remove item"
-                          >
-                            <ICONS.Trash />
-                          </button>
+                          <span className="font-black text-xl text-slate-900 min-w-[120px] text-right">₦{(item.price * item.cartQuantity).toLocaleString()}</span>
+                          <button onClick={() => setCart(prev => prev.filter(i => i.id !== item.id))} className="p-3 text-slate-300 hover:text-rose-500"><ICONS.Trash /></button>
                        </div>
                     </div>
                   ))}
-                  {cart.length === 0 && (
-                    <div className="py-32 flex flex-col items-center justify-center text-center">
-                      <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-slate-300 mb-6">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
-                      </div>
-                      <p className="text-slate-400 font-black uppercase tracking-[0.2em] italic text-sm">Session Basket Empty</p>
-                      <button onClick={() => { setIsBasketOpen(false); setActiveTab('Register'); }} className="mt-8 text-blue-600 font-black text-[10px] uppercase tracking-widest hover:underline underline-offset-8">Return to Catalog</button>
-                    </div>
-                  )}
                </div>
-               
                <div className="p-6 sm:p-10 bg-white border-t flex flex-col sm:flex-row items-center sm:items-end justify-between gap-8 shrink-0">
                   <div className="text-center sm:text-left w-full sm:w-auto">
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1">Authorization Amount</p>
                     <p className="text-4xl sm:text-5xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p>
                   </div>
-                  <button 
-                    onClick={completeCheckout} 
-                    disabled={cart.length === 0} 
-                    className="w-full sm:w-auto px-16 py-6 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-2xl hover:bg-blue-600 active:scale-95 transition-all disabled:opacity-20 shadow-blue-600/10 flex items-center justify-center gap-3"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
-                    Authorize Payment
-                  </button>
+                  <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-16 py-6 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest shadow-2xl hover:bg-blue-600 active:scale-95 transition-all disabled:opacity-20 shadow-blue-600/10">Authorize Payment</button>
                </div>
             </div>
           </div>

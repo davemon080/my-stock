@@ -41,6 +41,14 @@ export const db = {
     return sql`INSERT INTO branches (id, name, location, created_at) VALUES (${branch.id}, ${branch.name}, ${branch.location}, ${branch.createdAt})`;
   },
 
+  async deleteBranch(id: string) {
+    return sql`DELETE FROM branches WHERE id = ${id}`;
+  },
+
+  async updateBranch(id: string, name: string, location: string) {
+    return sql`UPDATE branches SET name = ${name}, location = ${location} WHERE id = ${id}`;
+  },
+
   // Inventory Management
   async getProducts(branchId: string): Promise<Product[]> {
     const rows = await sql`SELECT * FROM products WHERE branch_id = ${branchId} ORDER BY name ASC`;
@@ -138,5 +146,15 @@ export const db = {
         UPDATE products SET quantity = quantity - ${item.quantity} WHERE id = ${item.productId}
       `;
     }
+  },
+
+  // DANGER: Wipe All Data
+  async wipeAllData() {
+    // Truncate all operational tables
+    await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config RESTART IDENTITY CASCADE`;
+    
+    // Re-seed minimal required state
+    await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('SUPERMART PRO', '', 'admin')`;
+    await sql`INSERT INTO branches (id, name, location) VALUES ('br_main', 'Main Branch', 'Corporate HQ')`;
   }
 };
