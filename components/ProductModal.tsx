@@ -13,6 +13,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
   const [formData, setFormData] = useState<Omit<Product, 'id' | 'lastUpdated' | 'sku'>>({
     name: '',
     price: 0,
+    costPrice: 0,
     quantity: 0,
     minThreshold: 5,
     expiryDate: '',
@@ -26,6 +27,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
       setFormData({
         name: initialData.name,
         price: initialData.price,
+        costPrice: initialData.costPrice || 0,
         quantity: initialData.quantity,
         minThreshold: initialData.minThreshold,
         expiryDate: initialData.expiryDate || '',
@@ -36,6 +38,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
       setFormData({
         name: '',
         price: 0,
+        costPrice: 0,
         quantity: 0,
         minThreshold: 5,
         expiryDate: '',
@@ -71,7 +74,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">
             {initialData ? 'Update Product' : 'Add New Item'}
           </h2>
-          <p className="mt-2 text-xs font-bold tracking-widest text-slate-400 uppercase">Product Catalog Master</p>
+          <p className="mt-2 text-xs font-bold tracking-widest text-slate-400 uppercase">Financial & Stock Inventory</p>
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-8">
@@ -90,22 +93,23 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unit Price (₦)</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Cost Price (₦)</label>
+                <input 
+                  type="number" 
+                  required
+                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
+                  value={formData.costPrice}
+                  onChange={e => setFormData({...formData, costPrice: parseFloat(e.target.value) || 0})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selling Price (₦)</label>
                 <input 
                   type="number" 
                   required
                   className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
                   value={formData.price}
                   onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Expiry Date (Optional)</label>
-                <input 
-                  type="date" 
-                  className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all"
-                  value={formData.expiryDate}
-                  onChange={e => setFormData({...formData, expiryDate: e.target.value})}
                 />
               </div>
             </div>
