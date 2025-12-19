@@ -10,14 +10,14 @@ interface ProductModalProps {
 }
 
 const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
-  const [formData, setFormData] = useState<Omit<Product, 'id' | 'lastUpdated' | 'sku'>>({
+  const [formData, setFormData] = useState({
     name: '',
-    price: 0,
-    costPrice: 0,
-    quantity: 0,
-    minThreshold: 5,
+    price: '' as string | number,
+    costPrice: '' as string | number,
+    quantity: '' as string | number,
+    minThreshold: '' as string | number,
     expiryDate: '',
-    tags: []
+    tags: [] as string[]
   });
 
   const [tagsString, setTagsString] = useState('');
@@ -37,10 +37,10 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
     } else if (isOpen) {
       setFormData({
         name: '',
-        price: 0,
-        costPrice: 0,
-        quantity: 0,
-        minThreshold: 5,
+        price: '',
+        costPrice: '',
+        quantity: '',
+        minThreshold: 5, // Default threshold kept for safety
         expiryDate: '',
         tags: []
       });
@@ -57,6 +57,10 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
     
     onSave({
       ...formData,
+      price: Number(formData.price) || 0,
+      costPrice: Number(formData.costPrice) || 0,
+      quantity: Number(formData.quantity) || 0,
+      minThreshold: Number(formData.minThreshold) || 0,
       tags: processedTags
     });
   };
@@ -96,20 +100,24 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Cost Price (₦)</label>
                 <input 
                   type="number" 
+                  step="any"
                   required
-                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm"
+                  placeholder="Enter cost"
+                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm placeholder:font-normal placeholder:text-slate-300"
                   value={formData.costPrice}
-                  onChange={e => setFormData({...formData, costPrice: parseFloat(e.target.value) || 0})}
+                  onChange={e => setFormData({...formData, costPrice: e.target.value === '' ? '' : parseFloat(e.target.value)})}
                 />
               </div>
               <div className="space-y-1 sm:space-y-2">
                 <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selling Price (₦)</label>
                 <input 
                   type="number" 
+                  step="any"
                   required
-                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm"
+                  placeholder="Enter price"
+                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm placeholder:font-normal placeholder:text-slate-300"
                   value={formData.price}
-                  onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
+                  onChange={e => setFormData({...formData, price: e.target.value === '' ? '' : parseFloat(e.target.value)})}
                 />
               </div>
             </div>
@@ -120,9 +128,10 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 <input 
                   type="number" 
                   required
-                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm"
+                  placeholder="0"
+                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm placeholder:font-normal placeholder:text-slate-300"
                   value={formData.quantity}
-                  onChange={e => setFormData({...formData, quantity: parseInt(e.target.value) || 0})}
+                  onChange={e => setFormData({...formData, quantity: e.target.value === '' ? '' : parseInt(e.target.value)})}
                 />
               </div>
               <div className="space-y-1 sm:space-y-2">
@@ -130,9 +139,10 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 <input 
                   type="number" 
                   required
-                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm"
+                  placeholder="5"
+                  className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm placeholder:font-normal placeholder:text-slate-300"
                   value={formData.minThreshold}
-                  onChange={e => setFormData({...formData, minThreshold: parseInt(e.target.value) || 0})}
+                  onChange={e => setFormData({...formData, minThreshold: e.target.value === '' ? '' : parseInt(e.target.value)})}
                 />
               </div>
             </div>
@@ -141,7 +151,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
               <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tags (Comma split)</label>
               <input 
                 type="text" 
-                className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm"
+                className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl sm:rounded-2xl focus:border-blue-600 focus:bg-white outline-none font-bold transition-all text-sm placeholder:font-normal placeholder:text-slate-300"
                 value={tagsString}
                 onChange={e => setTagsString(e.target.value)}
                 placeholder="organic, fruit, bulk"
