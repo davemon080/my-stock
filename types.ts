@@ -1,12 +1,26 @@
 
 export type UserRole = 'Admin' | 'Seller';
 
+export interface Seller {
+  id: string;
+  email: string;
+  password: string;
+  name: string;
+}
+
+export interface AppConfig {
+  supermarketName: string;
+  logoUrl: string;
+  adminPassword: string;
+  sellers: Seller[];
+}
+
 export interface Product {
   id: string;
   sku: string;
   name: string;
   price: number;
-  costPrice: number; // Added to track financial performance
+  costPrice: number;
   quantity: number;
   minThreshold: number;
   expiryDate?: string;
@@ -20,14 +34,14 @@ export interface TransactionItem {
   sku: string;
   quantity: number;
   price: number;
-  costPriceAtSale: number; // Track cost at time of sale for accurate historical profit
+  costPriceAtSale: number;
 }
 
 export interface Transaction {
   id: string;
   items: TransactionItem[];
   total: number;
-  totalCost: number; // Added to track total cost of the transaction
+  totalCost: number;
   type: 'SALE' | 'RESTOCK';
   timestamp: string;
 }
@@ -35,7 +49,7 @@ export interface Transaction {
 export interface InventoryStats {
   totalItems: number;
   totalValue: number;
-  totalCostValue: number; // Potential cost of current inventory
+  totalCostValue: number;
   lowStockCount: number;
   outOfStockCount: number;
 }
