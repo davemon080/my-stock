@@ -3,7 +3,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Product } from "../types";
 
 export const getInventoryInsights = async (products: Product[]) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Use named parameter and assume process.env.API_KEY is provided
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const inventoryContext = products.map(p => ({
     name: p.name,
@@ -44,7 +45,9 @@ export const getInventoryInsights = async (products: Product[]) => {
       }
     });
 
-    return JSON.parse(response.text);
+    // Access .text property directly from GenerateContentResponse
+    const jsonStr = response.text?.trim() || "{}";
+    return JSON.parse(jsonStr);
   } catch (error) {
     console.error("Gemini Error:", error);
     return {

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Product, InventoryStats, AIResponse, UserRole } from './types';
+import { Product, InventoryStats, AIResponse, UserRole, Transaction } from './types';
 import { INITIAL_PRODUCTS, CATEGORIES, ICONS } from './constants';
 import DashboardCard from './components/DashboardCard';
 import ProductModal from './components/ProductModal';
@@ -11,24 +11,27 @@ import Fuse from 'fuse.js';
 const App: React.FC = () => {
   const [role, setRole] = useState<UserRole>('Admin');
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [aiInsight, setAiInsight] = useState<AIResponse | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Transactions' | 'Settings'>('Dashboard');
 
-  // Persistence (Simulation)
+  // Persistence
   useEffect(() => {
-    const saved = localStorage.getItem('sm_inventory_v2');
-    if (saved) {
-      setProducts(JSON.parse(saved));
-    }
+    const savedProducts = localStorage.getItem('sm_products_v3');
+    const savedTransactions = localStorage.getItem('sm_transactions_v3');
+    if (savedProducts) setProducts(JSON.parse(savedProducts));
+    if (savedTransactions) setTransactions(JSON.parse(savedTransactions));
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('sm_inventory_v2', JSON.stringify(products));
-  }, [products]);
+    localStorage.setItem('sm_products_v3', JSON.stringify(products));
+    localStorage.setItem('sm_transactions_v3', JSON.stringify(transactions));
+  }, [products, transactions]);
 
   const stats = useMemo((): InventoryStats => {
     const today = new Date();
@@ -57,26 +60,15 @@ const App: React.FC = () => {
 
   const fuse = useMemo(() => {
     return new Fuse(products, {
-      keys: [
-        { name: 'name', weight: 1.0 },
-        { name: 'sku', weight: 0.8 },
-        { name: 'description', weight: 0.5 },
-        { name: 'tags', weight: 0.7 }
-      ],
+      keys: ['name', 'sku', 'description', 'tags'],
       threshold: 0.3,
-      distance: 100,
-      ignoreLocation: true
     });
   }, [products]);
 
   const filteredProducts = useMemo(() => {
     let result = products;
-    if (searchTerm.trim()) {
-      result = fuse.search(searchTerm).map(item => item.item);
-    }
-    if (selectedCategory !== 'All') {
-      result = result.filter(p => p.category === selectedCategory);
-    }
+    if (searchTerm.trim()) result = fuse.search(searchTerm).map(i => i.item);
+    if (selectedCategory !== 'All') result = result.filter(p => p.category === selectedCategory);
     return result;
   }, [products, searchTerm, selectedCategory, fuse]);
 
@@ -99,286 +91,377 @@ const App: React.FC = () => {
     setEditingProduct(null);
   };
 
-  const updateQuantity = (id: string, delta: number) => {
-    setProducts(prev => prev.map(p => {
-      if (p.id === id) {
-        const newQty = Math.max(0, p.quantity + delta);
-        return { ...p, quantity: newQty, lastUpdated: new Date().toISOString() };
-      }
-      return p;
-    }));
-  };
+  const processTransaction = (id: string, type: 'SALE' | 'RESTOCK', qty: number) => {
+    const product = products.find(p => p.id === id);
+    if (!product) return;
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this product?')) {
-      setProducts(prev => prev.filter(p => p.id !== id));
+    if (type === 'SALE' && product.quantity < qty) {
+      alert("Insufficient stock!");
+      return;
     }
+
+    const delta = type === 'SALE' ? -qty : qty;
+    
+    setProducts(prev => prev.map(p => 
+      p.id === id 
+        ? { ...p, quantity: p.quantity + delta, lastUpdated: new Date().toISOString() } 
+        : p
+    ));
+
+    const newTransaction: Transaction = {
+      id: Math.random().toString(36).substr(2, 9),
+      productId: id,
+      productName: product.name,
+      type,
+      quantity: qty,
+      price: product.price * qty,
+      timestamp: new Date().toISOString()
+    };
+    setTransactions(prev => [newTransaction, ...prev].slice(0, 100)); // Keep last 100
   };
 
+  // Add missing function to handle AI report generation
   const generateAIReport = async () => {
     setIsAiLoading(true);
-    const result = await getInventoryInsights(products);
-    setAiInsight(result);
-    setIsAiLoading(false);
+    try {
+      const result = await getInventoryInsights(products);
+      setAiInsight(result);
+    } catch (err) {
+      console.error("AI Generation Error:", err);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   const isAdmin = role === 'Admin';
 
   return (
-    <div className={`min-h-screen pb-12 transition-colors duration-300 ${isAdmin ? 'bg-slate-50' : 'bg-emerald-50/30'}`}>
-      {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white transition-colors duration-300 ${isAdmin ? 'bg-blue-600' : 'bg-emerald-600'}`}>
-              <ICONS.Box />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight leading-none">SuperMart Pro</h1>
-              <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${isAdmin ? 'text-blue-500' : 'text-emerald-500'}`}>
-                {role} Panel
-              </p>
-            </div>
+    <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
+      {/* Sidebar Navigation */}
+      <aside className="w-64 bg-slate-900 text-white flex flex-col hidden lg:flex">
+        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isAdmin ? 'bg-blue-600' : 'bg-emerald-600'}`}>
+            <ICONS.Box />
           </div>
+          <span className="font-bold text-lg tracking-tight">SuperMart Pro</span>
+        </div>
 
-          <div className="flex items-center gap-2 md:gap-4">
-            {/* Role Switcher */}
-            <div className="bg-slate-100 p-1 rounded-lg flex items-center">
-              <button 
-                onClick={() => setRole('Admin')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${role === 'Admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Admin
-              </button>
-              <button 
-                onClick={() => setRole('Seller')}
-                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${role === 'Seller' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                Seller
-              </button>
+        <nav className="flex-1 p-4 space-y-2 mt-4">
+          <SidebarLink icon={<ICONS.Layout />} label="Dashboard" active={activeTab === 'Dashboard'} onClick={() => setActiveTab('Dashboard')} />
+          <SidebarLink icon={<ICONS.List />} label="Inventory" active={activeTab === 'Inventory'} onClick={() => setActiveTab('Inventory')} />
+          {!isAdmin && <SidebarLink icon={<ICONS.History />} label="Quick Entry" active={activeTab === 'Transactions'} onClick={() => setActiveTab('Transactions')} />}
+          <SidebarLink icon={<ICONS.Activity />} label="Analytics" active={activeTab === 'Settings'} onClick={() => setActiveTab('Settings')} />
+        </nav>
+
+        <div className="p-4 border-t border-slate-800">
+          <div className="bg-slate-800/50 p-3 rounded-xl">
+             <div className="flex items-center gap-2 mb-3">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{role} Mode</span>
+             </div>
+             <div className="flex gap-2">
+                <button 
+                  onClick={() => setRole('Admin')}
+                  className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${isAdmin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                >Admin</button>
+                <button 
+                  onClick={() => setRole('Seller')}
+                  className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${!isAdmin ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                >Seller</button>
+             </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between shrink-0">
+          <h2 className="text-xl font-bold text-slate-800">{activeTab}</h2>
+          <div className="flex items-center gap-4">
+            <div className="relative group">
+               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
+               <input 
+                 type="text" 
+                 placeholder="Search anything..." 
+                 className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-64 transition-all"
+                 value={searchTerm}
+                 onChange={e => setSearchTerm(e.target.value)}
+               />
             </div>
-
             {isAdmin && (
-              <>
-                <button 
-                  onClick={generateAIReport}
-                  disabled={isAiLoading}
-                  className="hidden md:flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg font-medium hover:bg-indigo-100 transition-all disabled:opacity-50"
-                >
-                  <ICONS.Sparkles />
-                  {isAiLoading ? 'Analyzing...' : 'AI Insights'}
-                </button>
-                <button 
-                  onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
-                >
-                  <ICONS.Plus />
-                  <span className="hidden sm:inline">Add Product</span>
-                </button>
-              </>
-            )}
-            
-            {!isAdmin && (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-bold">
-                  <ICONS.Users />
-                  Seller Mode
-                </div>
-              </div>
+               <button 
+                 onClick={() => { setEditingProduct(null); setIsModalOpen(true); }}
+                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all"
+               >
+                 <ICONS.Plus /> New Product
+               </button>
             )}
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-7xl mx-auto px-4 mt-8">
-        {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <DashboardCard 
-            title="Total Products" 
-            value={stats.totalItems} 
-            icon={<ICONS.Box />} 
-            color={isAdmin ? "blue" : "green"}
-          />
-          {isAdmin ? (
-            <DashboardCard 
-              title="Inventory Value" 
-              value={`₦${stats.totalValue.toLocaleString()}`} 
-              icon={<span className="font-bold text-lg">₦</span>} 
-              color="green"
-              trend="+12% this week"
-            />
-          ) : (
-            <DashboardCard 
-              title="Out of Stock" 
-              value={stats.outOfStockCount} 
-              icon={<ICONS.Alert />} 
-              color="red"
-            />
-          )}
-          <DashboardCard 
-            title="Low Stock" 
-            value={stats.lowStockCount} 
-            icon={<ICONS.Alert />} 
-            color="amber"
-          />
-          <DashboardCard 
-            title="Expiring Soon" 
-            value={stats.expiringSoonCount} 
-            icon={<ICONS.Alert />} 
-            color="red"
-          />
-        </div>
-
-        {/* AI Insight Section (Admin Only) */}
-        {isAdmin && aiInsight && (
-          <div className="mt-8 p-6 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-2xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 scale-150"> <ICONS.Sparkles /> </div>
-            <div className="relative z-10">
-              <div className="flex items-center gap-2 mb-4 text-indigo-900 font-bold">
-                <ICONS.Sparkles /> <h2>AI Inventory Analysis</h2>
+        {/* Dynamic Content */}
+        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+          
+          {activeTab === 'Dashboard' && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <DashboardCard title="Total Inventory" value={stats.totalItems} icon={<ICONS.Box />} color="blue" />
+                <DashboardCard title="Revenue (Est)" value={`₦${stats.totalValue.toLocaleString()}`} icon={<span className="font-bold">₦</span>} color="green" trend="+8.4%" />
+                <DashboardCard title="Low Stock Items" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" />
+                <DashboardCard title="Out of Stock" value={stats.outOfStockCount} icon={<ICONS.Alert />} color="red" />
               </div>
-              <p className="text-indigo-800 mb-4 max-w-3xl leading-relaxed">{aiInsight.insight}</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {aiInsight.recommendations.map((rec, idx) => (
-                  <div key={idx} className="text-sm text-indigo-700 bg-white/60 p-3 rounded-xl border border-indigo-100 flex gap-2">
-                    <span className="text-indigo-400 font-bold">•</span> {rec}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="font-bold text-slate-800">Inventory Mix</h3>
+                    <select className="text-xs font-bold text-slate-400 uppercase bg-transparent border-none outline-none">
+                      <option>By Category</option>
+                    </select>
                   </div>
-                ))}
-              </div>
-              <button onClick={() => setAiInsight(null)} className="mt-6 text-[10px] font-bold uppercase text-indigo-400 hover:text-indigo-600 tracking-widest">
-                Dismiss Insights
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="mt-8 flex flex-col lg:flex-row gap-8">
-          {/* Main List Section */}
-          <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-800">Inventory Status</h2>
-              <div className="flex items-center gap-3 w-full md:w-auto">
-                <div className="relative flex-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                  <input 
-                    type="text" 
-                    placeholder="Search inventory..."
-                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                  />
-                </div>
-                <select 
-                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={selectedCategory}
-                  onChange={e => setSelectedCategory(e.target.value)}
-                >
-                  <option value="All">All Categories</option>
-                  {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-bold uppercase tracking-wider">
-                    <th className="px-6 py-4">Product</th>
-                    <th className="px-6 py-4">Category</th>
-                    <th className="px-6 py-4">Quantity</th>
-                    <th className="px-6 py-4">Price</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredProducts.map(product => (
-                    <tr key={product.id} className="hover:bg-slate-50 transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-slate-800">{product.name}</span>
-                          <span className="text-[10px] font-mono text-slate-400 uppercase">{product.sku}</span>
-                          <div className="flex gap-1 mt-1">
-                            {product.tags?.map(t => <span key={t} className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-bold">{t}</span>)}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold">{product.category}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm font-bold ${product.quantity <= 0 ? 'text-red-600' : product.quantity <= product.minThreshold ? 'text-amber-600' : 'text-slate-700'}`}>
-                            {product.quantity}
-                          </span>
-                          {product.quantity <= product.minThreshold && (
-                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-bold text-slate-600">
-                        ₦{product.price.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {isAdmin ? (
-                          <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => { setEditingProduct(product); setIsModalOpen(true); }} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg">Edit</button>
-                            <button onClick={() => handleDelete(product.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg"><ICONS.Trash /></button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            <button 
-                              onClick={() => updateQuantity(product.id, -1)}
-                              disabled={product.quantity <= 0}
-                              className="flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-bold hover:bg-slate-50 disabled:opacity-50 transition-colors"
-                            >
-                              <ICONS.Minus /> Sell
-                            </button>
-                            <button 
-                              onClick={() => updateQuantity(product.id, 1)}
-                              className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold hover:bg-emerald-700 transition-colors"
-                            >
-                              <ICONS.Plus /> Restock
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Side Panel */}
-          <div className="w-full lg:w-80 space-y-6">
-             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Stock Distribution</h3>
-                <div className="h-64">
-                   <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                        <XAxis type="number" hide />
-                        <YAxis dataKey="name" type="category" width={80} style={{ fontSize: '10px', fontWeight: 'bold' }} />
-                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                        <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                  <div className="h-72">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                        <Tooltip 
+                          cursor={{ fill: '#f8fafc' }} 
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} 
+                        />
+                        <Bar dataKey="count" radius={[6, 6, 0, 0]} barSize={40}>
                           {chartData.map((e, i) => <Cell key={i} fill={isAdmin ? '#3b82f6' : '#10b981'} />)}
                         </Bar>
                       </BarChart>
-                   </ResponsiveContainer>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  {isAdmin ? (
+                    <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden">
+                       <div className="absolute top-0 right-0 p-4 opacity-10 scale-150 rotate-12"><ICONS.Sparkles /></div>
+                       <h3 className="font-bold text-lg mb-2">AI Insights</h3>
+                       <p className="text-indigo-100 text-sm mb-6 leading-relaxed">
+                         {aiInsight ? aiInsight.insight : "Run an AI report to analyze your inventory trends and reorder points."}
+                       </p>
+                       <button 
+                         onClick={generateAIReport}
+                         disabled={isAiLoading}
+                         className="w-full py-2.5 bg-white text-indigo-600 rounded-xl text-xs font-bold hover:bg-indigo-50 transition-all shadow-lg"
+                       >
+                         {isAiLoading ? "Processing..." : "Generate AI Report"}
+                       </button>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                      <h3 className="font-bold text-slate-800 mb-4">Recent Activity</h3>
+                      <div className="space-y-4">
+                        {transactions.slice(0, 5).map(t => (
+                          <div key={t.id} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <div className={`p-2 rounded-lg ${t.type === 'SALE' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                {t.type === 'SALE' ? '↓' : '↑'}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-800">{t.productName}</p>
+                                <p className="text-slate-400">{new Date(t.timestamp).toLocaleTimeString()}</p>
+                              </div>
+                            </div>
+                            <span className="font-mono font-bold text-slate-500">{t.type === 'SALE' ? '-' : '+'}{t.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Inventory' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+               <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <select 
+                      className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold focus:ring-2 focus:ring-blue-500 outline-none"
+                      value={selectedCategory}
+                      onChange={e => setSelectedCategory(e.target.value)}
+                    >
+                      <option value="All">All Categories</option>
+                      {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{filteredProducts.length} Items Listed</span>
+               </div>
+               
+               <div className="overflow-x-auto">
+                 <table className="w-full text-left text-sm border-collapse">
+                   <thead>
+                     <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-bold uppercase tracking-wider border-b border-slate-100">
+                       <th className="px-6 py-4">Item Details</th>
+                       <th className="px-6 py-4">SKU</th>
+                       <th className="px-6 py-4">Category</th>
+                       <th className="px-6 py-4">Stock</th>
+                       <th className="px-6 py-4">Price</th>
+                       <th className="px-6 py-4 text-right">Actions</th>
+                     </tr>
+                   </thead>
+                   <tbody className="divide-y divide-slate-100">
+                     {filteredProducts.map(p => (
+                       <tr key={p.id} className="hover:bg-slate-50/50 transition-colors group">
+                         <td className="px-6 py-4">
+                            <p className="font-bold text-slate-800">{p.name}</p>
+                            <p className="text-[10px] text-slate-400 line-clamp-1 max-w-xs">{p.description}</p>
+                         </td>
+                         <td className="px-6 py-4 font-mono text-[10px] font-bold text-slate-400">{p.sku}</td>
+                         <td className="px-6 py-4">
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold uppercase">{p.category}</span>
+                         </td>
+                         <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                               <div className={`w-2 h-2 rounded-full ${p.quantity <= p.minThreshold ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
+                               <span className="font-bold">{p.quantity}</span>
+                            </div>
+                         </td>
+                         <td className="px-6 py-4 font-bold text-slate-600">₦{p.price.toLocaleString()}</td>
+                         <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                               {isAdmin ? (
+                                 <>
+                                   <button onClick={() => { setEditingProduct(p); setIsModalOpen(true); }} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">Edit</button>
+                                   <button onClick={() => { if(confirm('Delete?')) setProducts(prev => prev.filter(i => i.id !== p.id)) }} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><ICONS.Trash /></button>
+                                 </>
+                               ) : (
+                                 <div className="flex gap-1">
+                                    <button onClick={() => processTransaction(p.id, 'SALE', 1)} className="px-3 py-1 bg-white border border-slate-200 rounded text-[10px] font-bold hover:bg-red-50 hover:text-red-600 transition-all">SELL</button>
+                                    <button onClick={() => processTransaction(p.id, 'RESTOCK', 10)} className="px-3 py-1 bg-emerald-600 text-white rounded text-[10px] font-bold hover:bg-emerald-700 transition-all">RESTOCK</button>
+                                 </div>
+                               )}
+                            </div>
+                         </td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'Transactions' && !isAdmin && (
+             <div className="bg-white rounded-2xl border border-slate-200 shadow-md p-6 h-full flex flex-col animate-in fade-in slide-in-from-right-4 duration-500">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-800">Quick Excel-Style Manager</h3>
+                    <p className="text-sm text-slate-400">Perform bulk stock updates and sales recorded instantly.</p>
+                  </div>
+                  <div className="bg-emerald-50 px-4 py-2 rounded-xl flex items-center gap-2 text-emerald-600 font-bold text-xs">
+                     <ICONS.History /> Real-time Batch Sync Active
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-auto bg-slate-50 border border-slate-200 rounded-xl">
+                   <table className="w-full text-xs table-fixed">
+                     <thead className="sticky top-0 bg-white shadow-sm z-10">
+                        <tr className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                           <th className="w-12 px-4 py-3 text-center">ID</th>
+                           <th className="w-48 px-4 py-3">Item Name</th>
+                           <th className="w-24 px-4 py-3">Stock Level</th>
+                           <th className="w-48 px-4 py-3">Quick Actions</th>
+                           <th className="w-32 px-4 py-3">Sale Record</th>
+                           <th className="px-4 py-3">Update Status</th>
+                        </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-200">
+                        {filteredProducts.map((p, idx) => (
+                          <tr key={p.id} className="hover:bg-white transition-all group">
+                            <td className="px-4 py-3 text-center font-mono text-slate-300">{idx + 1}</td>
+                            <td className="px-4 py-3 font-bold text-slate-700 truncate">{p.name}</td>
+                            <td className={`px-4 py-3 font-bold ${p.quantity <= p.minThreshold ? 'text-red-600' : 'text-slate-500'}`}>{p.quantity}</td>
+                            <td className="px-4 py-3">
+                               <div className="flex items-center gap-2">
+                                  <button onClick={() => processTransaction(p.id, 'RESTOCK', 1)} className="w-8 h-8 rounded border border-slate-200 flex items-center justify-center hover:bg-blue-50 transition-colors">+1</button>
+                                  <button onClick={() => processTransaction(p.id, 'RESTOCK', 10)} className="px-2 h-8 rounded border border-slate-200 flex items-center justify-center font-bold hover:bg-blue-50 transition-colors">+10</button>
+                                  <button onClick={() => processTransaction(p.id, 'RESTOCK', 50)} className="px-2 h-8 rounded border border-slate-200 flex items-center justify-center font-bold hover:bg-blue-50 transition-colors">+50</button>
+                               </div>
+                            </td>
+                            <td className="px-4 py-3">
+                               <div className="flex items-center gap-1">
+                                  <button 
+                                    onClick={() => processTransaction(p.id, 'SALE', 1)} 
+                                    disabled={p.quantity < 1}
+                                    className="px-4 py-2 bg-slate-900 text-white rounded text-[10px] font-bold hover:bg-red-600 disabled:opacity-50 transition-all uppercase"
+                                  >Record 1 Sale</button>
+                               </div>
+                            </td>
+                            <td className="px-4 py-3">
+                               <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                     <div 
+                                       className={`h-full transition-all duration-500 ${p.quantity <= p.minThreshold ? 'bg-red-500' : 'bg-emerald-500'}`} 
+                                       style={{ width: `${Math.min(100, (p.quantity / (p.minThreshold * 5)) * 100)}%` }}
+                                     ></div>
+                                  </div>
+                                  <span className="text-[9px] font-bold text-slate-400">{Math.round(Math.min(100, (p.quantity / (p.minThreshold * 5)) * 100))}%</span>
+                               </div>
+                            </td>
+                          </tr>
+                        ))}
+                     </tbody>
+                   </table>
+                </div>
+                <div className="mt-6 flex justify-end">
+                   <p className="text-xs font-bold text-slate-400">Press <kbd className="bg-slate-100 px-1 border rounded">Enter</kbd> to jump rows (Excel shortcut simulation ready)</p>
                 </div>
              </div>
-             
-             {isAdmin && (
-               <div className="bg-slate-900 p-6 rounded-2xl text-white relative overflow-hidden shadow-xl">
-                 <div className="absolute top-0 right-0 p-4 opacity-10 scale-150 rotate-12"><ICONS.Box /></div>
-                 <h3 className="text-lg font-bold mb-1">Reports</h3>
-                 <p className="text-slate-400 text-xs mb-6 leading-relaxed">Download current inventory state as a CSV for bookkeeping.</p>
-                 <button className="w-full py-2.5 bg-white text-slate-900 rounded-xl text-sm font-bold hover:bg-slate-100 transition-colors">
-                   Export Inventory
-                 </button>
+          )}
+
+          {activeTab === 'Settings' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-top-4 duration-500">
+               <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
+                  <h3 className="font-bold text-slate-800 mb-6">Profile Settings</h3>
+                  <div className="space-y-4">
+                     <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white ${isAdmin ? 'bg-blue-600' : 'bg-emerald-600'}`}>
+                           {role[0]}
+                        </div>
+                        <div>
+                           <p className="font-bold text-slate-800">Branch User #{Math.floor(Math.random()*1000)}</p>
+                           <p className="text-xs text-slate-400">{role} Account</p>
+                        </div>
+                     </div>
+                     <button className="w-full py-3 border-2 border-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-50 transition-all">
+                        Update Security Credentials
+                     </button>
+                  </div>
                </div>
-             )}
-          </div>
+               
+               <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-sm">
+                  <h3 className="font-bold text-slate-800 mb-6">Inventory Config</h3>
+                  <div className="space-y-6">
+                     <div className="flex items-center justify-between">
+                        <div>
+                           <p className="font-bold text-sm">Low Stock Alerts</p>
+                           <p className="text-xs text-slate-400">Notify when stock hits threshold</p>
+                        </div>
+                        <div className="w-12 h-6 bg-emerald-500 rounded-full relative">
+                           <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></div>
+                        </div>
+                     </div>
+                     <div className="flex items-center justify-between">
+                        <div>
+                           <p className="font-bold text-sm">AI Auto-Restock</p>
+                           <p className="text-xs text-slate-400">Suggest reorders automatically</p>
+                        </div>
+                        <div className="w-12 h-6 bg-slate-200 rounded-full relative">
+                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full"></div>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          )}
         </div>
       </main>
 
@@ -391,5 +474,22 @@ const App: React.FC = () => {
     </div>
   );
 };
+
+interface SidebarLinkProps {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+const SidebarLink: React.FC<SidebarLinkProps> = ({ icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 ${active ? 'bg-white/10 text-white font-bold' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+  >
+    <span className={`transition-transform duration-300 ${active ? 'scale-110' : ''}`}>{icon}</span>
+    <span className="text-sm">{label}</span>
+  </button>
+);
 
 export default App;
