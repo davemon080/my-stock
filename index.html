@@ -20,6 +20,7 @@
         }
         .custom-scrollbar::-webkit-scrollbar {
           width: 5px;
+          height: 5px;
         }
         .custom-scrollbar::-webkit-scrollbar-track {
           background: transparent;
@@ -31,12 +32,26 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: #cbd5e1;
         }
+        .no-scrollbar-at-mobile::-webkit-scrollbar {
+            display: none;
+        }
+        @media (min-width: 1024px) {
+            .no-scrollbar-at-mobile::-webkit-scrollbar {
+                display: block;
+            }
+        }
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
           25% { transform: translateX(-5px); }
           75% { transform: translateX(5px); }
         }
         .shake { animation: shake 0.2s ease-in-out 0s 2; }
+        
+        /* Disable text selection on UI elements for a more native feel */
+        .no-select {
+          user-select: none;
+          -webkit-user-select: none;
+        }
     </style>
 </head>
 <body>
