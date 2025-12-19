@@ -6,7 +6,7 @@ const DATABASE_URL = "postgresql://neondb_owner:npg_oNL4Ok5GvDie@ep-billowing-ha
 const sql = neon(DATABASE_URL);
 
 export const db = {
-  // Config & Global State
+  // Global System Configuration
   async getConfig(): Promise<Partial<AppConfig>> {
     const result = await sql`SELECT * FROM supermarket_config LIMIT 1`;
     if (result.length === 0) {
@@ -24,7 +24,7 @@ export const db = {
     return sql`UPDATE supermarket_config SET name = ${name}, logo_url = ${logo}, admin_password = ${adminPass}`;
   },
 
-  // Branches
+  // Branch Management
   async getBranches(): Promise<Branch[]> {
     const branches = await sql`SELECT * FROM branches ORDER BY created_at ASC`;
     return branches.map(b => ({
@@ -32,8 +32,8 @@ export const db = {
       name: b.name,
       location: b.location,
       createdAt: b.created_at,
-      products: [], // Loaded per branch
-      transactions: [] // Loaded per branch
+      products: [], 
+      transactions: [] 
     }));
   },
 
@@ -41,7 +41,7 @@ export const db = {
     return sql`INSERT INTO branches (id, name, location, created_at) VALUES (${branch.id}, ${branch.name}, ${branch.location}, ${branch.createdAt})`;
   },
 
-  // Products
+  // Inventory Management
   async getProducts(branchId: string): Promise<Product[]> {
     const rows = await sql`SELECT * FROM products WHERE branch_id = ${branchId} ORDER BY name ASC`;
     return rows.map(r => ({
@@ -74,7 +74,7 @@ export const db = {
     return sql`DELETE FROM products WHERE id = ${id}`;
   },
 
-  // Sellers
+  // Staff Management
   async getSellers(): Promise<Seller[]> {
     const rows = await sql`SELECT * FROM sellers`;
     return rows.map(r => ({
@@ -90,7 +90,11 @@ export const db = {
     return sql`INSERT INTO sellers (id, email, password, name, branch_id) VALUES (${seller.id}, ${seller.email}, ${seller.password}, ${seller.name}, ${seller.branchId})`;
   },
 
-  // Transactions
+  async deleteSeller(id: string) {
+    return sql`DELETE FROM sellers WHERE id = ${id}`;
+  },
+
+  // Financials & Transactions
   async getTransactions(branchId: string): Promise<Transaction[]> {
     const txs = await sql`SELECT * FROM transactions WHERE branch_id = ${branchId} ORDER BY timestamp DESC`;
     const items = await sql`
@@ -119,19 +123,17 @@ export const db = {
   },
 
   async addTransaction(tx: Transaction, branchId: string) {
-    // 1. Insert Transaction
     await sql`
       INSERT INTO transactions (id, branch_id, total, total_cost, type, timestamp)
       VALUES (${tx.id}, ${branchId}, ${tx.total}, ${tx.totalCost}, ${tx.type}, ${tx.timestamp})
     `;
 
-    // 2. Insert Items
     for (const item of tx.items) {
       await sql`
         INSERT INTO transaction_items (transaction_id, product_id, name, sku, quantity, price, cost_price_at_sale)
         VALUES (${tx.id}, ${item.productId}, ${item.name}, ${item.sku}, ${item.quantity}, ${item.price}, ${item.costPriceAtSale})
       `;
-      // 3. Update Inventory
+      // Inventory decrement
       await sql`
         UPDATE products SET quantity = quantity - ${item.quantity} WHERE id = ${item.productId}
       `;

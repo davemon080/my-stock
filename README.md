@@ -1,10 +1,10 @@
 
-# SuperMart Inventory Pro - Database Schema
+# SuperMart Inventory Pro - Complete Database Schema
 
-To initialize your Neon PostgreSQL database, execute the following SQL commands in your Neon Console SQL Editor.
+To initialize your Neon PostgreSQL database for all system features, execute these commands in the Neon Console SQL Editor.
 
 ```sql
--- 1. Configuration Table
+-- 1. Configuration Table (Branding & Global Security)
 CREATE TABLE IF NOT EXISTS supermarket_config (
     id SERIAL PRIMARY KEY,
     name TEXT DEFAULT 'SUPERMART PRO',
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS supermarket_config (
     admin_password TEXT DEFAULT 'admin'
 );
 
--- 2. Branches Table
+-- 2. Branches Table (Multi-Location Support)
 CREATE TABLE IF NOT EXISTS branches (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS branches (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Products Table
+-- 3. Products Table (Relational Inventory)
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS products (
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Sellers Table
+-- 4. Sellers Table (Staff Deployment)
 CREATE TABLE IF NOT EXISTS sellers (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS sellers (
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE
 );
 
--- 5. Transactions Table
+-- 5. Transactions Table (Sales Ledger)
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Transaction Items Table
+-- 6. Transaction Items Table (Line-Item Auditing)
 CREATE TABLE IF NOT EXISTS transaction_items (
     id SERIAL PRIMARY KEY,
     transaction_id TEXT REFERENCES transactions(id) ON DELETE CASCADE,
@@ -64,15 +64,18 @@ CREATE TABLE IF NOT EXISTS transaction_items (
     cost_price_at_sale DECIMAL(12, 2) NOT NULL
 );
 
--- Seed Initial Config if empty
+-- Initial Data Injection
 INSERT INTO supermarket_config (name, logo_url, admin_password) 
 SELECT 'SUPERMART PRO', '', 'admin'
 WHERE NOT EXISTS (SELECT 1 FROM supermarket_config);
+
+-- Provision Initial Main Branch if empty
+INSERT INTO branches (id, name, location)
+SELECT 'br_main', 'Main Branch', 'Corporate HQ'
+WHERE NOT EXISTS (SELECT 1 FROM branches);
 ```
 
-### Setup Instructions
-1. Copy the SQL above.
-2. Go to your [Neon Dashboard](https://console.neon.tech).
-3. Select your project and click on **SQL Editor**.
-4. Paste and click **Run**.
-5. The application is already configured to connect to your project URL.
+### Deployment Strategy
+1. **Schema Initialization**: Run the SQL above to provision the cloud infrastructure.
+2. **Staff Authorization**: Use the 'Settings' tab in the app to deploy staff accounts.
+3. **AI Integration**: The 'Analytics' dashboard utilizes Gemini AI to analyze stock levels defined in the `products` table.
