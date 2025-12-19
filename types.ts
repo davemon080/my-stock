@@ -12,16 +12,6 @@ export type Category =
 
 export type UserRole = 'Admin' | 'Seller';
 
-export interface Transaction {
-  id: string;
-  productId: string;
-  productName: string;
-  type: 'SALE' | 'RESTOCK';
-  quantity: number;
-  price: number;
-  timestamp: string;
-}
-
 export interface Product {
   id: string;
   sku: string;
@@ -32,19 +22,24 @@ export interface Product {
   minThreshold: number;
   expiryDate?: string;
   lastUpdated: string;
+  // Added optional properties to support enhanced product details
   description?: string;
   tags?: string[];
+}
+
+export interface Transaction {
+  id: string;
+  productId: string;
+  productName: string;
+  type: 'SALE' | 'RESTOCK';
+  quantity: number;
+  price: number;
+  timestamp: string;
 }
 
 export interface InventoryStats {
   totalItems: number;
   totalValue: number;
   lowStockCount: number;
-  expiringSoonCount: number;
   outOfStockCount: number;
-}
-
-export interface AIResponse {
-  insight: string;
-  recommendations: string[];
 }

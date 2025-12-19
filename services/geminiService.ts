@@ -2,57 +2,58 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Product } from "../types.ts";
 
+/**
+ * Uses Gemini AI to analyze inventory data and provide actionable insights for store management.
+ */
 export const getInventoryInsights = async (products: Product[]) => {
-  // Use named parameter and ensure safe process.env access
-  const apiKey = (typeof process !== 'undefined' && process.env?.API_KEY) || '';
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  const inventoryContext = products.map(p => ({
-    name: p.name,
-    category: p.category,
-    qty: p.quantity,
-    min: p.minThreshold,
-    expiry: p.expiryDate
-  }));
-
-  const prompt = `
-    Analyze this supermarket inventory data and provide actionable insights.
-    Data: ${JSON.stringify(inventoryContext)}
-    
-    Identify:
-    1. Critical low stock items that need immediate reordering.
-    2. Items nearing expiry that should be discounted or promoted.
-    3. General suggestions for inventory optimization.
-  `;
+  const inventoryContext = products.map(p => 
+    `Product: ${p.name}, SKU: ${p.sku}, Category: ${p.category}, Qty: ${p.quantity}, Min Threshold: ${p.minThreshold}, Price: ₦${p.price}`
+  ).join('\n');
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
+      model: 'gemini-3-flash-preview',
+      contents: `Analyze the following store inventory and provide a concise summary (insight) and 3-5 specific actionable recommendations for the manager. Focus on stock-outs, low inventory, and potential sales opportunities.\n\nCurrent Inventory Data:\n${inventoryContext}`,
       config: {
+        systemInstruction: "You are a senior inventory management AI. You analyze product stock levels against thresholds and market prices to provide smart business advice. Return your findings strictly in JSON format.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            insight: { type: Type.STRING, description: "A high level summary of the current inventory state." },
+            insight: {
+              type: Type.STRING,
+              description: "A summary sentence about the overall inventory health.",
+            },
             recommendations: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              description: "A list of specific bulleted recommendations."
-            }
+              description: "Specific actionable steps for the store manager.",
+            },
           },
-          required: ["insight", "recommendations"]
-        }
-      }
+          required: ["insight", "recommendations"],
+          propertyOrdering: ["insight", "recommendations"],
+        },
+      },
     });
 
-    const jsonStr = response.text?.trim() || "{}";
-    return JSON.parse(jsonStr);
+    const text = response.text;
+    if (!text) {
+      throw new Error("Empty response from Gemini API");
+    }
+
+    return JSON.parse(text);
   } catch (error) {
-    console.error("Gemini Error:", error);
+    console.error("Gemini Inventory Insight Error:", error);
+    // Graceful fallback if the API fails or returns unexpected data
     return {
-      insight: "Failed to connect to AI. Please check your API key configuration.",
-      recommendations: ["Monitor stock levels manually", "Audit item expiry dates"]
+      insight: "Automated analysis is currently unavailable. Please review low-stock alerts manually.",
+      recommendations: [
+        "Check all products marked with Red/Amber alerts.",
+        "Verify physical stock against digital records.",
+        "Update minimum threshold levels based on recent sales trends."
+      ]
     };
   }
 };

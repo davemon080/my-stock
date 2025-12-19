@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { Product, Category } from '../types';
-import { CATEGORIES } from '../constants';
+import { Product, Category } from '../types.ts';
+import { CATEGORIES } from '../constants.tsx';
 
 interface ProductModalProps {
   isOpen: boolean;
@@ -11,6 +11,7 @@ interface ProductModalProps {
 }
 
 const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
+  // Using the updated Product type which now includes description and tags
   const [formData, setFormData] = useState<Omit<Product, 'id' | 'lastUpdated'>>({
     sku: '',
     name: '',
@@ -118,7 +119,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 type="number" 
                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 value={formData.price}
-                onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})}
+                onChange={e => setFormData({...formData, price: parseFloat(e.target.value) || 0})}
               />
             </div>
             <div>
@@ -127,7 +128,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 type="number" 
                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 value={formData.quantity}
-                onChange={e => setFormData({...formData, quantity: parseInt(e.target.value)})}
+                onChange={e => setFormData({...formData, quantity: parseInt(e.target.value) || 0})}
               />
             </div>
             <div>
@@ -136,7 +137,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 type="number" 
                 className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 value={formData.minThreshold}
-                onChange={e => setFormData({...formData, minThreshold: parseInt(e.target.value)})}
+                onChange={e => setFormData({...formData, minThreshold: parseInt(e.target.value) || 0})}
               />
             </div>
           </div>
@@ -144,7 +145,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
             <label className="block text-sm font-medium text-slate-700 mb-1">Description</label>
             <textarea 
               className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none h-24"
-              value={formData.description}
+              value={formData.description || ''}
               onChange={e => setFormData({...formData, description: e.target.value})}
               placeholder="Enter product details..."
             />
@@ -157,15 +158,6 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
               value={tagsString}
               onChange={e => setTagsString(e.target.value)}
               placeholder="e.g. organic, fresh, dairy"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Expiry Date (Optional)</label>
-            <input 
-              type="date" 
-              className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              value={formData.expiryDate}
-              onChange={e => setFormData({...formData, expiryDate: e.target.value})}
             />
           </div>
         </div>
