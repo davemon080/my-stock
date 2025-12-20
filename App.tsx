@@ -5,7 +5,7 @@ import { ICONS } from './constants.tsx';
 import Fuse from 'fuse.js';
 import ProductModal from './components/ProductModal.tsx';
 import { db } from './services/dbService.ts';
-import { getInventoryInsights } from './services/geminiService.ts';
+import { getStoreStrategy } from './services/geminiService.ts';
 
 interface CartItem extends Product {
   cartQuantity: number;
@@ -45,7 +45,12 @@ const App: React.FC = () => {
   const [selectedBranchId, setSelectedBranchId] = useState<string>(currentUser?.branchId || '');
   const [activeBranchProducts, setActiveBranchProducts] = useState<Product[]>([]);
   const [activeBranchTransactions, setActiveBranchTransactions] = useState<Transaction[]>([]);
-  const [aiInsights, setAiInsights] = useState<{ insight: string; recommendations: string[] } | null>(null);
+  const [aiInsights, setAiInsights] = useState<{ 
+    summary: string; 
+    restockAdvice: string[]; 
+    removalAdvice: string[]; 
+    growthTips: string[];
+  } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -107,24 +112,36 @@ const App: React.FC = () => {
     setActiveBranchTransactions(t);
   };
 
-  const handleAiAnalysis = async () => {
-    if (activeBranchProducts.length === 0) return;
-    setIsAnalyzing(true);
-    try {
-      const result = await getInventoryInsights(activeBranchProducts);
-      setAiInsights(result);
-      showToast("Strategy Updated", "success");
-    } catch (e) {
-      showToast("Advisor Unavailable", "error");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+  const stats = useMemo((): InventoryStats => ({
+    totalItems: activeBranchProducts.length,
+    totalValue: activeBranchProducts.reduce((acc, p) => acc + (p.price * p.quantity), 0),
+    totalCostValue: activeBranchProducts.reduce((acc, p) => acc + (p.costPrice * p.quantity), 0),
+    lowStockCount: activeBranchProducts.filter(p => p.quantity > 0 && p.quantity <= p.minThreshold).length,
+    outOfStockCount: activeBranchProducts.filter(p => p.quantity <= 0).length,
+  }), [activeBranchProducts]);
 
   const activeBranch = useMemo(() => 
     config.branches.find(b => b.id === selectedBranchId) || config.branches[0],
     [config.branches, selectedBranchId]
   );
+
+  const handleAiAnalysis = async () => {
+    setIsAnalyzing(true);
+    try {
+      const result = await getStoreStrategy(
+        activeBranchProducts, 
+        activeBranchTransactions, 
+        stats, 
+        activeBranch?.name || "Main Store"
+      );
+      setAiInsights(result);
+      showToast("Strategy Updated", "success");
+    } catch (e) {
+      showToast("Advisor Offline", "error");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   // Login Logic
   const [loginEmail, setLoginEmail] = useState('');
@@ -265,14 +282,6 @@ const App: React.FC = () => {
     showToast("Checkout Finished", "success");
   };
 
-  const stats = useMemo((): InventoryStats => ({
-    totalItems: activeBranchProducts.length,
-    totalValue: activeBranchProducts.reduce((acc, p) => acc + (p.price * p.quantity), 0),
-    totalCostValue: activeBranchProducts.reduce((acc, p) => acc + (p.costPrice * p.quantity), 0),
-    lowStockCount: activeBranchProducts.filter(p => p.quantity > 0 && p.quantity <= p.minThreshold).length,
-    outOfStockCount: activeBranchProducts.filter(p => p.quantity <= 0).length,
-  }), [activeBranchProducts]);
-
   const fuse = useMemo(() => new Fuse(activeBranchProducts, { keys: ['name', 'sku'], threshold: 0.3 }), [activeBranchProducts]);
   const filteredProducts = useMemo(() => searchTerm ? fuse.search(searchTerm).map(r => r.item) : activeBranchProducts, [activeBranchProducts, searchTerm, fuse]);
 
@@ -368,7 +377,7 @@ const App: React.FC = () => {
 
       {confirmModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-           <div className="w-full max-w-sm bg-white rounded-[2.5rem] p-10 shadow-2xl">
+           <div className="w-full max-sm bg-white rounded-[2.5rem] p-10 shadow-2xl">
               <h3 className="text-xl font-black text-slate-900 mb-4 uppercase">{confirmModal.title}</h3>
               <p className="text-sm font-bold text-slate-500 mb-10 leading-relaxed">{confirmModal.message}</p>
               <div className="flex gap-4">
@@ -471,13 +480,13 @@ const App: React.FC = () => {
                 <StatCard title="Sales Today" value={`₦${activeBranchTransactions.filter(t => new Date(t.timestamp).toDateString() === new Date().toDateString()).reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="emerald" />
               </div>
 
-              {/* Pro Intelligence Hub */}
+              {/* Intelligence Hub */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                  {/* Stock Monitor */}
                  <div className="lg:col-span-1 bg-white rounded-[3rem] p-8 border border-slate-200 shadow-sm flex flex-col">
                     <div className="mb-8">
-                       <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-1">Live Inventory Health</h3>
-                       <p className="text-xs font-bold text-slate-500">Items requiring restock attention</p>
+                       <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-1">Live Stock Health</h3>
+                       <p className="text-xs font-bold text-slate-500">Items needing immediate restock</p>
                     </div>
                     
                     <div className="space-y-6 flex-1">
@@ -499,7 +508,7 @@ const App: React.FC = () => {
                             <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-4">
                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                             </div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">Stock levels are<br/>optimal across node</p>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Stock is healthy!</p>
                          </div>
                        )}
                     </div>
@@ -508,25 +517,25 @@ const App: React.FC = () => {
                       onClick={() => setActiveTab('Inventory')}
                       className="mt-10 w-full py-4 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
                     >
-                      Manage Full List
+                      Manage Full Inventory
                     </button>
                  </div>
 
-                 {/* Rebranded AI Consultant */}
+                 {/* Strategy Consultant Card */}
                  <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-10 shadow-2xl relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-12 pointer-events-none opacity-10 group-hover:opacity-20 transition-opacity">
+                    <div className="absolute top-0 right-0 p-12 pointer-events-none opacity-5 group-hover:opacity-10 transition-opacity">
                        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="0.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
                     </div>
                     
                     <div className="relative z-10 h-full flex flex-col">
-                       <div className="flex items-center justify-between mb-12">
+                       <div className="flex items-center justify-between mb-8">
                           <div className="flex items-center gap-4">
-                             <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-blue-600/30">
+                             <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-xl">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
                              </div>
                              <div>
-                                <h3 className="text-lg font-black text-white uppercase tracking-tight">Strategy Consultant</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Powered by Gemini AI</p>
+                                <h3 className="text-lg font-black text-white uppercase tracking-tight">Growth Advisor</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Personal Business Coach</p>
                              </div>
                           </div>
                           
@@ -535,30 +544,55 @@ const App: React.FC = () => {
                             disabled={isAnalyzing}
                             className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/10 flex items-center gap-2 disabled:opacity-50"
                           >
-                             {isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Consult"}
+                             {isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Get New Advice"}
                           </button>
                        </div>
 
-                       <div className="flex-1">
+                       <div className="flex-1 space-y-8 overflow-y-auto custom-scrollbar pr-2">
                           {aiInsights ? (
-                             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                <div className="mb-8 p-6 bg-white/5 rounded-3xl border border-white/5">
-                                   <p className="text-slate-300 text-sm italic leading-relaxed">
-                                      "{aiInsights.insight}"
+                             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+                                <div className="p-6 bg-white/5 rounded-3xl border border-white/5">
+                                   <p className="text-slate-200 text-sm leading-relaxed italic">
+                                      "{aiInsights.summary}"
                                    </p>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                   {aiInsights.recommendations.map((rec, i) => (
-                                      <div key={i} className="p-4 bg-white/5 border border-white/5 rounded-2xl flex items-start gap-3 hover:bg-white/10 transition-colors">
-                                         <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-black text-[10px] shrink-0">{i+1}</div>
-                                         <span className="text-[11px] font-bold text-slate-300 leading-snug">{rec}</span>
-                                      </div>
-                                   ))}
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                   <div className="space-y-4">
+                                      <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest border-b border-blue-400/20 pb-2">Restock Advice</h4>
+                                      <ul className="space-y-2">
+                                         {aiInsights.restockAdvice.map((item, i) => (
+                                            <li key={i} className="text-xs text-slate-300 flex items-start gap-2">
+                                               <span className="text-blue-500">•</span> {item}
+                                            </li>
+                                         ))}
+                                      </ul>
+                                   </div>
+                                   <div className="space-y-4">
+                                      <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest border-b border-rose-400/20 pb-2">Removal Advice</h4>
+                                      <ul className="space-y-2">
+                                         {aiInsights.removalAdvice.map((item, i) => (
+                                            <li key={i} className="text-xs text-slate-300 flex items-start gap-2">
+                                               <span className="text-rose-500">•</span> {item}
+                                            </li>
+                                         ))}
+                                      </ul>
+                                   </div>
+                                   <div className="md:col-span-2 space-y-4">
+                                      <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest border-b border-emerald-400/20 pb-2">Growth Strategies</h4>
+                                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                         {aiInsights.growthTips.map((tip, i) => (
+                                            <li key={i} className="text-xs text-slate-300 bg-white/5 p-3 rounded-xl border border-white/5">
+                                               {tip}
+                                            </li>
+                                         ))}
+                                      </ul>
+                                   </div>
                                 </div>
                              </div>
                           ) : (
                              <div className="h-48 flex flex-col items-center justify-center text-center opacity-30 border-2 border-dashed border-white/10 rounded-3xl">
-                                <p className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Initialize Strategy Node</p>
+                                <p className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Click 'Get New Advice' to begin</p>
                              </div>
                           )}
                        </div>
