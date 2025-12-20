@@ -126,6 +126,10 @@ const App: React.FC = () => {
   );
 
   const handleAiAnalysis = async () => {
+    if (activeBranchProducts.length === 0) {
+      showToast("Add products first!", "info");
+      return;
+    }
     setIsAnalyzing(true);
     try {
       const result = await getStoreStrategy(
@@ -135,9 +139,10 @@ const App: React.FC = () => {
         activeBranch?.name || "Main Store"
       );
       setAiInsights(result);
-      showToast("Strategy Updated", "success");
+      showToast("Live Advice Received", "success");
     } catch (e) {
-      showToast("Advisor Offline", "error");
+      console.error("AI Growth Advisor Error:", e);
+      showToast("Advisor Connection Error", "error");
     } finally {
       setIsAnalyzing(false);
     }
