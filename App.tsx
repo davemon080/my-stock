@@ -127,10 +127,13 @@ const App: React.FC = () => {
 
   const handleAiAnalysis = async () => {
     if (activeBranchProducts.length === 0) {
-      showToast("Add products first!", "info");
+      showToast("Add items to inventory first!", "info");
       return;
     }
+    
     setIsAnalyzing(true);
+    setAiInsights(null); // Clear old insights while loading
+
     try {
       const result = await getStoreStrategy(
         activeBranchProducts, 
@@ -139,10 +142,10 @@ const App: React.FC = () => {
         activeBranch?.name || "Main Store"
       );
       setAiInsights(result);
-      showToast("Live Advice Received", "success");
+      showToast("Growth Tips Updated", "success");
     } catch (e) {
-      console.error("AI Growth Advisor Error:", e);
-      showToast("Advisor Connection Error", "error");
+      console.error("Growth Advisor Analysis Error:", e);
+      showToast("Could not connect to Advisor", "error");
     } finally {
       setIsAnalyzing(false);
     }
@@ -526,8 +529,8 @@ const App: React.FC = () => {
                     </button>
                  </div>
 
-                 {/* Strategy Consultant Card */}
-                 <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-10 shadow-2xl relative overflow-hidden group">
+                 {/* Growth Advisor Card */}
+                 <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-10 shadow-2xl relative overflow-hidden group min-h-[500px]">
                     <div className="absolute top-0 right-0 p-12 pointer-events-none opacity-5 group-hover:opacity-10 transition-opacity">
                        <svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="0.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
                     </div>
@@ -540,7 +543,7 @@ const App: React.FC = () => {
                              </div>
                              <div>
                                 <h3 className="text-lg font-black text-white uppercase tracking-tight">Growth Advisor</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Personal Business Coach</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Live Business Assistant</p>
                              </div>
                           </div>
                           
@@ -549,13 +552,18 @@ const App: React.FC = () => {
                             disabled={isAnalyzing}
                             className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border border-white/10 flex items-center gap-2 disabled:opacity-50"
                           >
-                             {isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Get New Advice"}
+                             {isAnalyzing ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Refresh Tips"}
                           </button>
                        </div>
 
                        <div className="flex-1 space-y-8 overflow-y-auto custom-scrollbar pr-2">
-                          {aiInsights ? (
-                             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+                          {isAnalyzing ? (
+                             <div className="h-64 flex flex-col items-center justify-center text-center animate-pulse">
+                                <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-6" />
+                                <p className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em]">Advisor is studying your data...</p>
+                             </div>
+                          ) : aiInsights ? (
+                             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8 pb-6">
                                 <div className="p-6 bg-white/5 rounded-3xl border border-white/5">
                                    <p className="text-slate-200 text-sm leading-relaxed italic">
                                       "{aiInsights.summary}"
@@ -564,30 +572,34 @@ const App: React.FC = () => {
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                    <div className="space-y-4">
-                                      <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest border-b border-blue-400/20 pb-2">Restock Advice</h4>
-                                      <ul className="space-y-2">
+                                      <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-widest border-b border-blue-400/20 pb-2 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" /> What to Restock
+                                      </h4>
+                                      <ul className="space-y-3">
                                          {aiInsights.restockAdvice.map((item, i) => (
-                                            <li key={i} className="text-xs text-slate-300 flex items-start gap-2">
-                                               <span className="text-blue-500">•</span> {item}
+                                            <li key={i} className="text-xs text-slate-300 leading-relaxed pl-1">
+                                               {item}
                                             </li>
                                          ))}
                                       </ul>
                                    </div>
                                    <div className="space-y-4">
-                                      <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest border-b border-rose-400/20 pb-2">Removal Advice</h4>
-                                      <ul className="space-y-2">
+                                      <h4 className="text-[10px] font-black text-rose-400 uppercase tracking-widest border-b border-rose-400/20 pb-2 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 bg-rose-500 rounded-full" /> Slow Items
+                                      </h4>
+                                      <ul className="space-y-3">
                                          {aiInsights.removalAdvice.map((item, i) => (
-                                            <li key={i} className="text-xs text-slate-300 flex items-start gap-2">
-                                               <span className="text-rose-500">•</span> {item}
+                                            <li key={i} className="text-xs text-slate-300 leading-relaxed pl-1">
+                                               {item}
                                             </li>
                                          ))}
                                       </ul>
                                    </div>
-                                   <div className="md:col-span-2 space-y-4">
-                                      <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest border-b border-emerald-400/20 pb-2">Growth Strategies</h4>
-                                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                   <div className="md:col-span-2 space-y-4 pt-4">
+                                      <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest border-b border-emerald-400/20 pb-2">3 Steps to Grow</h4>
+                                      <ul className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                                          {aiInsights.growthTips.map((tip, i) => (
-                                            <li key={i} className="text-xs text-slate-300 bg-white/5 p-3 rounded-xl border border-white/5">
+                                            <li key={i} className="text-xs text-slate-300 bg-white/5 p-4 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors">
                                                {tip}
                                             </li>
                                          ))}
@@ -596,8 +608,8 @@ const App: React.FC = () => {
                                 </div>
                              </div>
                           ) : (
-                             <div className="h-48 flex flex-col items-center justify-center text-center opacity-30 border-2 border-dashed border-white/10 rounded-3xl">
-                                <p className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Click 'Get New Advice' to begin</p>
+                             <div className="h-64 flex flex-col items-center justify-center text-center opacity-30 border-2 border-dashed border-white/10 rounded-[3rem]">
+                                <p className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Click 'Refresh Tips' to wake up advisor</p>
                              </div>
                           )}
                        </div>
