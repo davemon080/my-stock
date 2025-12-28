@@ -73,3 +73,16 @@ export interface Notification {
   read: boolean;
   user: string;
 }
+
+export type ApprovalActionType = 'ADD' | 'EDIT' | 'DELETE';
+
+export interface ApprovalRequest {
+  id: string;
+  branchId: string;
+  actionType: ApprovalActionType;
+  productId?: string;
+  productData: Partial<Product>;
+  requestedBy: string;
+  timestamp: string;
+  status: 'PENDING' | 'APPROVED' | 'DECLINED';
+}

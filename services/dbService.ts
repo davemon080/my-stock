@@ -1,6 +1,6 @@
 
 import { neon } from '@neondatabase/serverless';
-import { Product, Branch, Transaction, Seller, AppConfig, Notification } from '../types.ts';
+import { Product, Branch, Transaction, Seller, AppConfig, Notification, ApprovalRequest } from '../types.ts';
 
 const DATABASE_URL = "postgresql://neondb_owner:npg_oNL4Ok5GvDie@ep-billowing-hall-adwkuu1o-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require";
 const sql = neon(DATABASE_URL);
@@ -141,11 +141,34 @@ export const db = {
         INSERT INTO transaction_items (transaction_id, product_id, name, sku, quantity, price, cost_price_at_sale)
         VALUES (${tx.id}, ${item.productId}, ${item.name}, ${item.sku}, ${item.quantity}, ${item.price}, ${item.costPriceAtSale})
       `;
-      // Inventory decrement
-      await sql`
-        UPDATE products SET quantity = quantity - ${item.quantity} WHERE id = ${item.productId}
-      `;
+      await sql`UPDATE products SET quantity = quantity - ${item.quantity} WHERE id = ${item.productId}`;
     }
+  },
+
+  // Approvals (New Logic)
+  async getApprovals(branchId: string): Promise<ApprovalRequest[]> {
+    const rows = await sql`SELECT * FROM approvals WHERE branch_id = ${branchId} AND status = 'PENDING' ORDER BY timestamp DESC`;
+    return rows.map(r => ({
+      id: r.id,
+      branchId: r.branch_id,
+      actionType: r.action_type as any,
+      productId: r.product_id,
+      productData: r.product_data,
+      requestedBy: r.requested_by,
+      timestamp: r.timestamp,
+      status: r.status as any
+    }));
+  },
+
+  async addApprovalRequest(req: Omit<ApprovalRequest, 'status'>) {
+    return sql`
+      INSERT INTO approvals (id, branch_id, action_type, product_id, product_data, requested_by, timestamp)
+      VALUES (${req.id}, ${req.branchId}, ${req.actionType}, ${req.productId}, ${JSON.stringify(req.productData)}, ${req.requestedBy}, ${req.timestamp})
+    `;
+  },
+
+  async updateApprovalStatus(requestId: string, status: 'APPROVED' | 'DECLINED') {
+    return sql`UPDATE approvals SET status = ${status} WHERE id = ${requestId}`;
   },
 
   // Notifications
@@ -156,7 +179,7 @@ export const db = {
       message: r.message,
       type: r.type as any,
       timestamp: r.timestamp,
-      read: false, // Calculated UI side via localstorage
+      read: false,
       user: r.user_name
     }));
   },
@@ -169,9 +192,9 @@ export const db = {
     `;
   },
 
-  // DANGER: Wipe All Data - Completely resets all tables
+  // Wipe All Data
   async wipeAllData() {
-    await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config, notifications RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config, notifications, approvals RESTART IDENTITY CASCADE`;
     await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('MY STORE', '', 'admin')`;
     await sql`INSERT INTO branches (id, name, location) VALUES ('br_main', 'Main Store', 'Headquarters')`;
   }

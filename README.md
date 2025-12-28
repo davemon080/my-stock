@@ -4,7 +4,7 @@
 To initialize your Neon PostgreSQL database for all system features, execute these commands in the Neon Console SQL Editor.
 
 ```sql
--- 1. Configuration Table (Branding & Global Security)
+-- 1. Configuration Table (Shop Info)
 CREATE TABLE IF NOT EXISTS supermarket_config (
     id SERIAL PRIMARY KEY,
     name TEXT DEFAULT 'SUPERMART PRO',
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS supermarket_config (
     admin_password TEXT DEFAULT 'admin'
 );
 
--- 2. Branches Table (Multi-Location Support)
+-- 2. Branches Table
 CREATE TABLE IF NOT EXISTS branches (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS branches (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Products Table (Relational Inventory)
+-- 3. Products Table
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS products (
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Sellers Table (Staff Deployment)
+-- 4. Sellers Table
 CREATE TABLE IF NOT EXISTS sellers (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Transaction Items Table (Line-Item Auditing)
+-- 6. Transaction Items Table
 CREATE TABLE IF NOT EXISTS transaction_items (
     id SERIAL PRIMARY KEY,
     transaction_id TEXT REFERENCES transactions(id) ON DELETE CASCADE,
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS transaction_items (
     cost_price_at_sale DECIMAL(12, 2) NOT NULL
 );
 
--- 7. Notifications Table (Activity Tracking)
+-- 7. Notifications Table
 CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -74,18 +74,24 @@ CREATE TABLE IF NOT EXISTS notifications (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Initial Data Injection
+-- 8. Approvals Table (New: Seller request queue)
+CREATE TABLE IF NOT EXISTS approvals (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
+    action_type TEXT NOT NULL,
+    product_id TEXT,
+    product_data JSONB,
+    requested_by TEXT NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    status TEXT DEFAULT 'PENDING'
+);
+
+-- Initial Data
 INSERT INTO supermarket_config (name, logo_url, admin_password) 
 SELECT 'SUPERMART PRO', '', 'admin'
 WHERE NOT EXISTS (SELECT 1 FROM supermarket_config);
 
--- Provision Initial Main Branch if empty
 INSERT INTO branches (id, name, location)
-SELECT 'br_main', 'Main Branch', 'Corporate HQ'
+SELECT 'br_main', 'Main Store', 'Headquarters'
 WHERE NOT EXISTS (SELECT 1 FROM branches);
 ```
-
-### Deployment Strategy
-1. **Schema Initialization**: Run the SQL above to provision the cloud infrastructure.
-2. **Staff Authorization**: Use the 'Settings' tab in the app to deploy staff accounts.
-3. **Activity Logs**: All significant actions (sales, inventory edits) are logged in the `notifications` table and filtered by branch.

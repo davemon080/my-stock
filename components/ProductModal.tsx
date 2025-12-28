@@ -7,7 +7,6 @@ interface ProductModalProps {
   onClose: () => void;
   onSave: (product: Omit<Product, 'id' | 'lastUpdated' | 'sku'>) => void;
   initialData?: Product | null;
-  // Fixed: Added theme to props to support dynamic styling in the modal
   theme: 'light' | 'dark';
 }
 
@@ -78,28 +77,28 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
         
         <div className="mb-8 sm:mb-10 pt-4 sm:pt-0">
           <h2 className="text-2xl sm:text-3xl font-black tracking-tight uppercase italic">
-            {initialData ? 'Update Record' : 'Log New Entry'}
+            {initialData ? 'Update Item Info' : 'Add a New Product'}
           </h2>
-          <p className="mt-1 sm:mt-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase italic">Product Intelligence</p>
+          <p className="mt-1 sm:mt-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase italic">Fill in the item details below</p>
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8 pb-10 sm:pb-0">
           <div className="space-y-4 sm:space-y-6">
             <div className="space-y-1 sm:space-y-2">
-              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nomenclature</label>
+              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">What is the item called?</label>
               <input 
                 type="text" 
                 required
                 className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl focus:border-blue-600 outline-none font-bold transition-all text-sm"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
-                placeholder="Item designation..."
+                placeholder="e.g. Peak Milk, Sliced Bread..."
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-1 sm:space-y-2">
-                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Capital Unit (Buy)</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Buying Price (What we paid)</label>
                 <input 
                   type="number" 
                   step="any"
@@ -111,7 +110,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 />
               </div>
               <div className="space-y-1 sm:space-y-2">
-                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Market Unit (Sell)</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selling Price (Customer price)</label>
                 <input 
                   type="number" 
                   step="any"
@@ -126,7 +125,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
 
             <div className="grid grid-cols-2 gap-4 sm:gap-6">
               <div className="space-y-1 sm:space-y-2">
-                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Physical Stock</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">How many are we adding?</label>
                 <input 
                   type="number" 
                   required
@@ -137,7 +136,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 />
               </div>
               <div className="space-y-1 sm:space-y-2">
-                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Critical Limit</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Low stock warning level</label>
                 <input 
                   type="number" 
                   required
@@ -150,13 +149,13 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
             </div>
 
             <div className="space-y-1 sm:space-y-2">
-              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Taxonomy (split with comma)</label>
+              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categories (e.g. food, drinks)</label>
               <input 
                 type="text" 
                 className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl focus:border-blue-600 outline-none font-bold transition-all text-sm"
                 value={tagsString}
                 onChange={e => setTagsString(e.target.value)}
-                placeholder="dairy, beverage, grain..."
+                placeholder="dairy, snacks, drinks..."
               />
             </div>
           </div>
@@ -165,16 +164,15 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
             <button 
               type="button"
               onClick={onClose}
-              // Fixed: Correctly referencing the theme prop from destructuring to fix "Cannot find name 'theme'"
               className={`flex-1 py-4 sm:py-5 text-[10px] sm:text-sm font-black uppercase tracking-widest rounded-xl sm:rounded-3xl transition-all border ${theme === 'dark' ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-100 hover:bg-slate-50'}`}
             >
-              Abort
+              Cancel
             </button>
             <button 
               type="submit"
               className="flex-[2] py-4 sm:py-5 text-[10px] sm:text-sm font-black text-white uppercase tracking-widest bg-blue-600 shadow-xl shadow-blue-600/30 rounded-xl sm:rounded-3xl hover:bg-blue-700 transition-all active:scale-95"
             >
-              Commit Changes
+              Submit for Approval
             </button>
           </div>
         </form>
