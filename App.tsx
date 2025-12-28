@@ -50,6 +50,7 @@ const App: React.FC = () => {
   const [receiptToShow, setReceiptToShow] = useState<Transaction | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous?: boolean } | null>(null);
+  const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
 
   const [config, setConfig] = useState<AppConfig>({
     supermarketName: 'MY STORE',
@@ -75,6 +76,12 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('supermart_carts');
     return saved ? JSON.parse(saved) : {};
   });
+
+  // Date Filters
+  const [txStartDate, setTxStartDate] = useState('');
+  const [txEndDate, setTxEndDate] = useState('');
+  const [revStartDate, setRevStartDate] = useState('');
+  const [revEndDate, setRevEndDate] = useState('');
 
   const cart = useMemo(() => branchCarts[selectedBranchId] || [], [branchCarts, selectedBranchId]);
 
@@ -439,24 +446,28 @@ const App: React.FC = () => {
     loadBranchData();
   };
 
-  const handleWipeDatabase = () => {
+  const handleWipeBranch = async (branchId: string) => {
+    const branchName = config.branches.find(b => b.id === branchId)?.name || 'Branch';
     setConfirmModal({
       isOpen: true,
-      title: "WIPE ALL DATA?",
-      message: "This will delete all sales, staff, and items. Forever!",
+      title: `WIPE ${branchName.toUpperCase()}?`,
+      message: `This will delete ALL sales, inventory, and activity for ${branchName}. YOU CANNOT UNDO THIS.`,
       isDangerous: true,
       onConfirm: async () => {
         setConfirmModal(null);
         setIsInitializing(true);
         try {
-          await db.wipeAllData();
-          showToast("Shop reset to zero", "success");
-          setCurrentUser(null);
+          await db.wipeBranchData(branchId);
+          showToast(`${branchName} data cleared`, "success");
+          if (selectedBranchId === branchId) {
+            await loadBranchData();
+          }
           await initApp();
-          setNotifications([]);
         } catch (e) {
-          showToast("Error wiping data", "error");
+          showToast("Wipe failed", "error");
+        } finally {
           setIsInitializing(false);
+          setIsWipeModalOpen(false);
         }
       }
     });
@@ -469,6 +480,25 @@ const App: React.FC = () => {
 
   const fuse = useMemo(() => new Fuse(activeBranchProducts, { keys: ['name', 'sku'], threshold: 0.3 }), [activeBranchProducts]);
   const filteredProducts = useMemo(() => searchTerm ? fuse.search(searchTerm).map(r => r.item) : activeBranchProducts, [activeBranchProducts, searchTerm, fuse]);
+
+  const filteredTransactions = useMemo(() => {
+    return activeBranchTransactions.filter(t => {
+      const matchSearch = t.id.toLowerCase().includes(searchTermTransactions.toLowerCase());
+      const date = new Date(t.timestamp);
+      const matchStart = txStartDate ? date >= new Date(txStartDate) : true;
+      const matchEnd = txEndDate ? date <= new Date(txEndDate + 'T23:59:59') : true;
+      return matchSearch && matchStart && matchEnd;
+    });
+  }, [activeBranchTransactions, searchTermTransactions, txStartDate, txEndDate]);
+
+  const filteredRevenueTransactions = useMemo(() => {
+    return activeBranchTransactions.filter(t => {
+      const date = new Date(t.timestamp);
+      const matchStart = revStartDate ? date >= new Date(revStartDate) : true;
+      const matchEnd = revEndDate ? date <= new Date(revEndDate + 'T23:59:59') : true;
+      return matchStart && matchEnd;
+    });
+  }, [activeBranchTransactions, revStartDate, revEndDate]);
 
   const lowStockItems = useMemo(() => 
     activeBranchProducts
@@ -538,17 +568,17 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Notifications Drawer logic with professionall responsiveness */}
+      {/* Notifications Drawer */}
       {isNotificationsOpen && (
          <div className="fixed inset-0 z-[120] flex justify-end">
-            <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsNotificationsOpen(false)}></div>
+            <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => { setIsNotificationsOpen(false); markAllRead(); }}></div>
             <div className={`relative w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-300 ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
                <div className="p-8 border-b dark:border-slate-800 flex items-center justify-between shrink-0">
                   <div className="min-w-0 pr-4">
                      <h3 className="text-xl font-black uppercase tracking-tight italic leading-none dark:text-white">Activity Logs</h3>
                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2">Personal records for {currentUser.name}</p>
                   </div>
-                  <button onClick={() => setIsNotificationsOpen(false)} className={`p-4 rounded-2xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+                  <button onClick={() => { setIsNotificationsOpen(false); markAllRead(); }} className={`p-4 rounded-2xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                </div>
                <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                   {visibleNotifications.length === 0 ? (
@@ -567,16 +597,39 @@ const App: React.FC = () => {
                   ))}
                </div>
                <div className="p-8 border-t dark:border-slate-800 text-center flex flex-col gap-3">
-                  <button onClick={() => { markAllRead(); setIsNotificationsOpen(false); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all">Mark all as seen</button>
+                  <button onClick={() => { markAllRead(); setIsNotificationsOpen(false); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all">Close and clear badge</button>
                   <button onClick={clearLogsLocally} className="text-[10px] font-black uppercase text-rose-500 hover:text-rose-600 transition-colors tracking-widest">Clear history view</button>
                </div>
             </div>
          </div>
       )}
 
+      {/* Wipe Branch Modal */}
+      {isWipeModalOpen && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md">
+          <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 duration-200 ${theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-white' : 'bg-white text-slate-900'}`}>
+            <h3 className="text-xl font-black mb-4 uppercase tracking-tight">Select Branch to Wipe</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed italic">Warning: This will clear every piece of data for the selected store branch.</p>
+            <div className="space-y-3 mb-10 overflow-y-auto max-h-[300px] custom-scrollbar pr-2">
+              {config.branches.map(b => (
+                <button 
+                  key={b.id} 
+                  onClick={() => handleWipeBranch(b.id)}
+                  className={`w-full p-6 text-left rounded-[2rem] border-2 font-black uppercase text-xs transition-all ${theme === 'dark' ? 'border-slate-800 bg-slate-800/50 hover:border-rose-500' : 'border-slate-100 bg-slate-50 hover:border-rose-500'}`}
+                >
+                  {b.name}
+                  <p className="text-[9px] font-bold text-slate-400 mt-1">{b.location}</p>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setIsWipeModalOpen(false)} className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation Overlay */}
       {confirmModal && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-6">
            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setConfirmModal(null)}></div>
            <div className={`relative w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-200 ${theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-white' : 'bg-white text-slate-900'}`}>
               <h3 className="text-xl font-black mb-4 uppercase tracking-tight">{confirmModal.title}</h3>
@@ -650,8 +703,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Notification Bell with Logic-Accurate Unread Badge */}
-            <button onClick={() => { setIsNotificationsOpen(true); markAllRead(); }} className={`relative p-2 sm:p-2.5 rounded-xl transition-all shrink-0 ${theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-500'}`}>
+            <button onClick={() => { setIsNotificationsOpen(true); }} className={`relative p-2 sm:p-2.5 rounded-xl transition-all shrink-0 ${theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-500'}`}>
               <ICONS.Bell />
               {unreadNotificationsCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[8px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white dark:border-slate-900 animate-pulse">{unreadNotificationsCount}</span>
@@ -811,15 +863,32 @@ const App: React.FC = () => {
 
           {activeTab === 'Transactions' && (
             <div className="max-w-7xl mx-auto space-y-6">
-               <div className="relative max-w-md w-full">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                  <input type="text" placeholder="Search receipt numbers..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`} value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
+               <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm">
+                  <div className="flex-1 w-full space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Receipt Search</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
+                      <input type="text" placeholder="Search ID..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="w-full md:w-auto space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">From Date</label>
+                    <input type="date" value={txStartDate} onChange={e => setTxStartDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
+                  </div>
+                  <div className="w-full md:w-auto space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">To Date</label>
+                    <input type="date" value={txEndDate} onChange={e => setTxEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
+                  </div>
+                  {(txStartDate || txEndDate || searchTermTransactions) && (
+                    <button onClick={() => { setTxStartDate(''); setTxEndDate(''); setSearchTermTransactions(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all">Clear</button>
+                  )}
                </div>
+
                <div className={`rounded-[3rem] border overflow-hidden shadow-sm overflow-x-auto ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <table className="w-full text-left min-w-[700px]">
                      <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Receipt #</th><th className="px-10 py-6">Time</th><th className="px-10 py-6">Total Amount</th><th className="px-10 py-6 text-right">View</th></tr></thead>
                      <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800' : 'divide-slate-100'}`}>
-                        {activeBranchTransactions.filter(t => t.id.toLowerCase().includes(searchTermTransactions.toLowerCase())).map(t => (
+                        {filteredTransactions.map(t => (
                           <tr key={t.id} className="hover:bg-slate-50/5 transition-all">
                              <td className="px-10 py-6 font-black text-xs text-slate-900 dark:text-white">#{t.id}</td>
                              <td className="px-10 py-6 text-xs text-slate-500 font-bold">{new Date(t.timestamp).toLocaleString()}</td>
@@ -836,18 +905,32 @@ const App: React.FC = () => {
           {activeTab === 'Revenue' && currentUser.role === 'Admin' && (
              <div className="max-w-7xl mx-auto space-y-10">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                   <StatCard title="Total Cash Made" value={`₦${activeBranchTransactions.reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="blue" theme={theme} />
-                   <StatCard title="Total Cost of Items" value={`₦${activeBranchTransactions.reduce((acc, t) => acc + t.totalCost, 0).toLocaleString()}`} icon={<ICONS.Inventory />} color="amber" theme={theme} />
-                   <StatCard title="Total Profit" value={`₦${(activeBranchTransactions.reduce((acc, t) => acc + t.total, 0) - activeBranchTransactions.reduce((acc, t) => acc + t.totalCost, 0)).toLocaleString()}`} icon={<ICONS.Dashboard />} color="emerald" theme={theme} />
-                   <StatCard title="Margin Ratio" value={`${((activeBranchTransactions.reduce((acc, t) => acc + (t.total - t.totalCost), 0) / (activeBranchTransactions.reduce((acc, t) => acc + t.total, 0) || 1)) * 100).toFixed(1)}%`} icon={<ICONS.Register />} color="slate" theme={theme} />
+                   <StatCard title="Total Cash Made" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="blue" theme={theme} />
+                   <StatCard title="Total Cost of Items" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0).toLocaleString()}`} icon={<ICONS.Inventory />} color="amber" theme={theme} />
+                   <StatCard title="Total Profit" value={`₦${(filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) - filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0)).toLocaleString()}`} icon={<ICONS.Dashboard />} color="emerald" theme={theme} />
+                   <StatCard title="Margin Ratio" value={`${((filteredRevenueTransactions.reduce((acc, t) => acc + (t.total - t.totalCost), 0) / (filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) || 1)) * 100).toFixed(1)}%`} icon={<ICONS.Register />} color="slate" theme={theme} />
                 </div>
+
+                <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm">
+                  <div className="flex-1 w-full space-y-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Filter Log by Date</label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <input type="date" value={revStartDate} onChange={e => setRevStartDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
+                      <input type="date" value={revEndDate} onChange={e => setRevEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
+                    </div>
+                  </div>
+                  {(revStartDate || revEndDate) && (
+                    <button onClick={() => { setRevStartDate(''); setRevEndDate(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all font-black uppercase text-[10px]">Reset Filters</button>
+                  )}
+                </div>
+
                 <div className={`rounded-[3rem] p-8 sm:p-10 border shadow-sm overflow-hidden ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                    <h3 className="text-xl font-black uppercase mb-8 italic tracking-tighter dark:text-white">Profit Log</h3>
                    <div className="overflow-x-auto">
                       <table className="w-full text-left min-w-[700px]">
                          <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-8 py-6">Sale Date</th><th className="px-8 py-6">Amount Received</th><th className="px-8 py-6">Profit Earned</th><th className="px-8 py-6 text-right">Performance</th></tr></thead>
                          <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-white' : 'divide-slate-100'}`}>
-                            {activeBranchTransactions.map(t => (
+                            {filteredRevenueTransactions.map(t => (
                               <tr key={t.id} className="text-xs hover:bg-slate-50/5 transition-all">
                                  <td className="px-8 py-6 font-bold text-slate-500">{new Date(t.timestamp).toLocaleDateString()} at {new Date(t.timestamp).toLocaleTimeString()}</td>
                                  <td className="px-8 py-6 font-black text-slate-900 dark:text-white">₦{t.total.toLocaleString()}</td>
@@ -923,7 +1006,6 @@ const App: React.FC = () => {
                   </div>
                </div>
 
-               {/* Staff PERSONNEL Section: Fully Responsive Mobile Layout */}
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Personnel Management</h3>
                   <form onSubmit={async (e) => {
@@ -973,7 +1055,7 @@ const App: React.FC = () => {
 
                <div className="bg-rose-50 dark:bg-rose-900/10 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 dark:border-rose-900/50 text-center">
                   <h3 className="text-2xl font-black uppercase text-rose-600 mb-2 italic">DANGER ZONE</h3>
-                  <button onClick={handleWipeDatabase} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Master reset entire shop system</button>
+                  <button onClick={() => setIsWipeModalOpen(true)} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Master Reset a branch</button>
                </div>
             </div>
           )}

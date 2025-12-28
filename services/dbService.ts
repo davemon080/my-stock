@@ -67,6 +67,7 @@ export const db = {
   async upsertProduct(product: Product, branchId: string) {
     return sql`
       INSERT INTO products (id, branch_id, sku, name, price, cost_price, quantity, min_threshold, last_updated)
+      /* FIX: Accessing minThreshold property instead of incorrect min_threshold */
       VALUES (${product.id}, ${branchId}, ${product.sku}, ${product.name}, ${product.price}, ${product.costPrice}, ${product.quantity}, ${product.minThreshold}, ${product.lastUpdated})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
@@ -197,5 +198,18 @@ export const db = {
     await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config, notifications, approvals RESTART IDENTITY CASCADE`;
     await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('MY STORE', '', 'admin')`;
     await sql`INSERT INTO branches (id, name, location) VALUES ('br_main', 'Main Store', 'Headquarters')`;
+  },
+
+  // Scoped Wipe
+  async wipeBranchData(branchId: string) {
+    // We delete data tied to the branch, but keep the branch record itself
+    await sql`DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE branch_id = ${branchId})`;
+    await sql`DELETE FROM transactions WHERE branch_id = ${branchId}`;
+    await sql`DELETE FROM products WHERE branch_id = ${branchId}`;
+    await sql`DELETE FROM notifications WHERE branch_id = ${branchId}`;
+    await sql`DELETE FROM approvals WHERE branch_id = ${branchId}`;
+    // Optionally wipe sellers? User asked for "every page data clear", 
+    // Sellers are usually persistent but let's clear them too if requested.
+    await sql`DELETE FROM sellers WHERE branch_id = ${branchId}`;
   }
 };
