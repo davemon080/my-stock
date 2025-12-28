@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS transaction_items (
     cost_price_at_sale DECIMAL(12, 2) NOT NULL
 );
 
+-- 7. Notifications Table (Activity Tracking)
+CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
+    type TEXT NOT NULL,
+    user_name TEXT NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Initial Data Injection
 INSERT INTO supermarket_config (name, logo_url, admin_password) 
 SELECT 'SUPERMART PRO', '', 'admin'
@@ -78,4 +88,4 @@ WHERE NOT EXISTS (SELECT 1 FROM branches);
 ### Deployment Strategy
 1. **Schema Initialization**: Run the SQL above to provision the cloud infrastructure.
 2. **Staff Authorization**: Use the 'Settings' tab in the app to deploy staff accounts.
-3. **AI Integration**: The 'Analytics' dashboard utilizes Gemini AI to analyze stock levels defined in the `products` table.
+3. **Activity Logs**: All significant actions (sales, inventory edits) are logged in the `notifications` table and filtered by branch.

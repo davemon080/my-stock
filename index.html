@@ -6,20 +6,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SuperMart Inventory Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Plus Jakarta Sans', 'sans-serif'],
+            },
+          }
+        }
+      }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-          --brand-primary: #3b82f6;
-          --brand-dark: #0f172a;
-        }
         body { 
           font-family: 'Plus Jakarta Sans', sans-serif; 
           margin: 0;
           padding: 0;
           overflow-x: hidden;
-          background-color: #f8fafc;
           -webkit-tap-highlight-color: transparent;
         }
         .custom-scrollbar::-webkit-scrollbar {
@@ -33,8 +40,8 @@
           background: #e2e8f0;
           border-radius: 10px;
         }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #cbd5e1;
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #334155;
         }
         
         @keyframes loading-bar {
@@ -47,8 +54,8 @@
         }
 
         @media print {
-          body { background-color: white !important; }
-          aside, header, main > div:not(.print-receipt-container), button, .fixed:not(.print-receipt-overlay) {
+          body, html { background-color: white !important; color: black !important; }
+          aside, header, main > div:not(.print-receipt-overlay), button, .fixed:not(.print-receipt-overlay) {
             display: none !important;
           }
           .print-receipt-overlay {
@@ -56,20 +63,30 @@
             top: 0 !important;
             left: 0 !important;
             width: 100% !important;
+            height: auto !important;
             background: white !important;
             display: block !important;
+            opacity: 1 !important;
+            z-index: 9999 !important;
           }
           .print-receipt-card {
             box-shadow: none !important;
             border: none !important;
             width: 100% !important;
-            max-width: 300px !important;
-            margin: 0 auto !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            color: black !important;
+          }
+          .dark .print-receipt-card {
+            background-color: white !important;
+            color: black !important;
           }
         }
     </style>
+<link rel="stylesheet" href="/index.css">
 </head>
-<body>
+<body class="transition-colors duration-200">
     <div id="root"></div>
     <script type="importmap">
 {
@@ -87,5 +104,6 @@
 }
 </script>
     <script type="module" src="./index.tsx"></script>
+<script type="module" src="/index.tsx"></script>
 </body>
 </html>

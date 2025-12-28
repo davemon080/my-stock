@@ -64,3 +64,12 @@ export interface InventoryStats {
   lowStockCount: number;
   outOfStockCount: number;
 }
+
+export interface Notification {
+  id: string;
+  message: string;
+  type: 'info' | 'alert' | 'success';
+  timestamp: string;
+  read: boolean;
+  user: string;
+}

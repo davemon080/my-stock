@@ -1,6 +1,6 @@
 
 import { neon } from '@neondatabase/serverless';
-import { Product, Branch, Transaction, Seller, AppConfig } from '../types.ts';
+import { Product, Branch, Transaction, Seller, AppConfig, Notification } from '../types.ts';
 
 const DATABASE_URL = "postgresql://neondb_owner:npg_oNL4Ok5GvDie@ep-billowing-hall-adwkuu1o-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require";
 const sql = neon(DATABASE_URL);
@@ -10,8 +10,8 @@ export const db = {
   async getConfig(): Promise<Partial<AppConfig>> {
     const result = await sql`SELECT * FROM supermarket_config LIMIT 1`;
     if (result.length === 0) {
-      await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('SUPERMART PRO', '', 'admin')`;
-      return { supermarketName: 'SUPERMART PRO', logoUrl: '', adminPassword: 'admin' };
+      await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('MY STORE', '', 'admin')`;
+      return { supermarketName: 'MY STORE', logoUrl: '', adminPassword: 'admin' };
     }
     return {
       supermarketName: result[0].name,
@@ -148,12 +148,30 @@ export const db = {
     }
   },
 
+  // Notifications
+  async getNotifications(branchId: string): Promise<Notification[]> {
+    const rows = await sql`SELECT * FROM notifications WHERE branch_id = ${branchId} ORDER BY timestamp DESC LIMIT 100`;
+    return rows.map(r => ({
+      id: r.id,
+      message: r.message,
+      type: r.type as any,
+      timestamp: r.timestamp,
+      read: false, // Calculated UI side via localstorage
+      user: r.user_name
+    }));
+  },
+
+  async addNotification(branchId: string, message: string, type: string, userName: string) {
+    const id = Math.random().toString(36).substr(2, 9);
+    return sql`
+      INSERT INTO notifications (id, branch_id, message, type, user_name)
+      VALUES (${id}, ${branchId}, ${message}, ${type}, ${userName})
+    `;
+  },
+
   // DANGER: Wipe All Data - Completely resets all tables
   async wipeAllData() {
-    // Truncate all tables and restart sequences to ensure a clean slate
-    await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config RESTART IDENTITY CASCADE`;
-    
-    // Re-seed with essential initial data using understandable names
+    await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config, notifications RESTART IDENTITY CASCADE`;
     await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('MY STORE', '', 'admin')`;
     await sql`INSERT INTO branches (id, name, location) VALUES ('br_main', 'Main Store', 'Headquarters')`;
   }
