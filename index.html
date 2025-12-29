@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SuperMart Inventory Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -55,7 +56,7 @@
 
         @media print {
           body, html { background-color: white !important; color: black !important; }
-          aside, header, main > div:not(.print-receipt-overlay), button, .fixed:not(.print-receipt-overlay) {
+          aside, header, main > div:not(.print-receipt-overlay):not(.barcode-print-view), button, .fixed:not(.print-receipt-overlay) {
             display: none !important;
           }
           .print-receipt-overlay {
@@ -81,6 +82,19 @@
           .dark .print-receipt-card {
             background-color: white !important;
             color: black !important;
+          }
+          /* Barcode Print Styles */
+          .barcode-print-view {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 10px !important;
+            padding: 20px !important;
+          }
+          .barcode-label {
+            border: 1px solid #eee !important;
+            padding: 10px !important;
+            text-align: center !important;
+            page-break-inside: avoid !important;
           }
         }
     </style>

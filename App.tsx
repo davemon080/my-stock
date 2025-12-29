@@ -6,6 +6,8 @@ import Fuse from 'fuse.js';
 import ProductModal from './components/ProductModal.tsx';
 import { db } from './services/dbService.ts';
 
+declare const Html5QrcodeScanner: any;
+
 interface CartItem extends Product {
   cartQuantity: number;
 }
@@ -46,7 +48,7 @@ const App: React.FC = () => {
   const [verificationCode, setVerificationCode] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register' | 'Transactions' | 'Revenue' | 'Settings' | 'Approvals'>('Dashboard');
+  const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register' | 'Transactions' | 'Revenue' | 'Settings' | 'Approvals' | 'Barcodes'>('Dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isBasketOpen, setIsBasketOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -54,6 +56,10 @@ const App: React.FC = () => {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void; isDangerous?: boolean } | null>(null);
   const [isWipeModalOpen, setIsWipeModalOpen] = useState(false);
+
+  // Barcode Scanner State
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const scannerRef = useRef<any>(null);
 
   const [config, setConfig] = useState<AppConfig>({
     supermarketName: 'MY STORE',
@@ -103,11 +109,32 @@ const App: React.FC = () => {
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   };
 
+  // Helper to play a scan beep sound
+  const playBeep = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // High pitch beep
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.01);
+      gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 0.1);
+    } catch (e) {
+      console.log('Audio beep failed', e);
+    }
+  };
+
   const isValidEmailFormat = (email: string) => {
     const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!re.test(email)) return false;
-    const parts = email.split('@');
-    return parts.length === 2 && parts[1].includes('.');
+    return re.test(email);
   };
 
   const addNotification = async (message: string, type: 'info' | 'alert' | 'success' = 'info') => {
@@ -271,7 +298,6 @@ const App: React.FC = () => {
     e.preventDefault();
     setLoginError('');
     setIsGlobalLoading(true);
-    
     await new Promise(r => setTimeout(r, 1500));
 
     if (loginRole === 'Admin') {
@@ -363,13 +389,11 @@ const App: React.FC = () => {
     const num = parseInt(val) || 0;
     const real = activeBranchProducts.find(p => p.id === productId);
     if (!real) return;
-    
     let targetNum = num;
     if (targetNum > real.quantity) {
       showToast(`We only have ${real.quantity} left`, "info");
       targetNum = real.quantity;
     }
-    
     const updated = cart.map(i => i.id === productId ? { ...i, cartQuantity: targetNum } : i).filter(i => i.cartQuantity >= 0);
     updateBranchCart(updated);
   };
@@ -407,7 +431,6 @@ const App: React.FC = () => {
     await new Promise(r => setTimeout(r, 1500));
     const isEditing = !!editingProduct;
     const productId = editingProduct ? editingProduct.id : Math.random().toString(36).substr(2, 9);
-    
     if (currentUser?.role === 'Seller') {
       const approvalReq: ApprovalRequest = {
         id: Math.random().toString(36).substr(2, 9),
@@ -579,6 +602,42 @@ const App: React.FC = () => {
     setIsVerifyingEmail(false);
   };
 
+  // Barcode Scanning Logic
+  const startScanner = () => {
+    setIsScannerOpen(true);
+    setTimeout(() => {
+      scannerRef.current = new Html5QrcodeScanner(
+        "reader",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+      );
+      scannerRef.current.render(onScanSuccess, onScanFailure);
+    }, 100);
+  };
+
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear().catch((error: any) => console.error("Scanner clear error:", error));
+      scannerRef.current = null;
+    }
+    setIsScannerOpen(false);
+  };
+
+  const onScanSuccess = (decodedText: string) => {
+    const product = activeBranchProducts.find(p => p.sku === decodedText);
+    if (product) {
+      playBeep();
+      addToCart(product);
+      showToast(`Matched: ${product.name}!`, "success");
+    } else {
+      showToast("I don't know this code: " + decodedText, "error");
+    }
+  };
+
+  const onScanFailure = (error: any) => {
+    // Failures happen every frame scanning for a match, so we ignore them.
+  };
+
   if (isInitializing) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-center px-6">
@@ -745,6 +804,16 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {isScannerOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 backdrop-blur-lg p-6">
+           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-[3rem] p-8 shadow-2xl relative">
+              <h3 className="text-xl font-black mb-6 uppercase tracking-tight text-center italic">Point Camera at Product Sticker</h3>
+              <div id="reader" className="w-full overflow-hidden rounded-2xl border-4 border-blue-600"></div>
+              <button onClick={stopScanner} className="w-full py-4 mt-8 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Close Camera</button>
+           </div>
+        </div>
+      )}
+
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-72 bg-slate-950 text-white flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="p-8 flex items-center justify-between border-b border-white/5 shrink-0">
           <div className="flex items-center gap-4">
@@ -759,13 +828,14 @@ const App: React.FC = () => {
             </div>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-slate-400 hover:text-white">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
           </button>
         </div>
         <nav className="flex-1 p-6 space-y-2 overflow-y-auto custom-scrollbar">
           {[
             { id: 'Dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' },
             { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Stock Room' },
+            { id: 'Barcodes', icon: <ICONS.Plus />, label: 'Item Stickers' },
             { id: 'Register', icon: <ICONS.Register />, label: 'Check Out' },
             { id: 'Transactions', icon: <ICONS.Register />, label: 'Sales History' },
             { id: 'Revenue', icon: <ICONS.Revenue />, label: 'Money Report', adminOnly: true },
@@ -792,7 +862,7 @@ const App: React.FC = () => {
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-xl font-black uppercase tracking-tight leading-none truncate">{activeTab === 'Revenue' ? 'Money Report' : activeTab}</h2>
+              <h2 className="text-sm sm:text-xl font-black uppercase tracking-tight leading-none truncate">{activeTab === 'Revenue' ? 'Money Report' : activeTab === 'Barcodes' ? 'Item Stickers' : activeTab}</h2>
               <p className="hidden md:block text-[9px] font-black text-blue-600 uppercase tracking-widest mt-1 italic truncate">Hello, {currentUser.name}</p>
             </div>
           </div>
@@ -874,9 +944,12 @@ const App: React.FC = () => {
 
           {activeTab === 'Register' && (
             <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-               <div className="relative max-w-2xl mx-auto w-full">
-                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                  <input type="text" placeholder="Search for items to sell..." className={`w-full pl-14 sm:pl-16 pr-6 sm:pr-8 py-4 sm:py-5 text-md font-bold border-2 border-transparent rounded-[2rem] sm:rounded-[2.5rem] outline-none shadow-sm transition-all focus:border-blue-600 ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+               <div className="flex flex-col sm:flex-row items-center gap-4 max-w-4xl mx-auto w-full">
+                  <div className="relative flex-1 w-full">
+                     <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
+                     <input type="text" placeholder="Search for items to sell..." className={`w-full pl-14 sm:pl-16 pr-6 sm:pr-8 py-4 sm:py-5 text-md font-bold border-2 border-transparent rounded-[2rem] sm:rounded-[2.5rem] outline-none shadow-sm transition-all focus:border-blue-600 ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                  </div>
+                  <button onClick={startScanner} className="w-full sm:w-auto px-10 py-5 bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-[10px] tracking-widest shadow-xl shadow-blue-600/20 active:scale-95 transition-all flex items-center justify-center gap-3 shrink-0"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M12 7v10"/><path d="M8 12h8"/></svg> Activate Scan Sale</button>
                </div>
                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
                  {filteredProducts.map(p => (
@@ -892,6 +965,37 @@ const App: React.FC = () => {
                       </div>
                    </button>
                  ))}
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'Barcodes' && (
+            <div className="max-w-7xl mx-auto space-y-10">
+               <div className="flex flex-col sm:flex-row items-center justify-between gap-6 print:hidden">
+                  <div>
+                    <h3 className="text-2xl font-black uppercase italic tracking-tighter dark:text-white">Item Stickers</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Print these and stick them on your products</p>
+                  </div>
+                  <button onClick={() => window.print()} className="w-full sm:w-auto px-12 py-5 bg-slate-900 dark:bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-2xl active:scale-95 flex items-center justify-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg> Print All Stickers</button>
+               </div>
+               
+               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 barcode-print-view">
+                  {activeBranchProducts.map(p => (
+                    <div key={p.id} className={`barcode-label p-6 border-2 rounded-[2.5rem] text-center flex flex-col items-center justify-center space-y-4 bg-white dark:bg-slate-900 transition-all ${theme === 'dark' ? 'border-slate-800' : 'border-slate-100 shadow-sm'}`}>
+                       <h4 className="text-[9px] font-black uppercase tracking-tight text-slate-900 dark:text-slate-200 line-clamp-1">{p.name}</h4>
+                       <div className="p-4 bg-white rounded-xl border border-slate-100">
+                          <div className="flex flex-col items-center gap-1">
+                             <div className="flex gap-[2px] items-end h-12">
+                                {p.sku.split('').map((char, i) => (
+                                   <div key={i} className={`bg-black`} style={{ width: (char.charCodeAt(0) % 3 + 1) + 'px', height: (70 + (char.charCodeAt(0) % 30)) + '%' }}></div>
+                                ))}
+                             </div>
+                             <span className="text-[10px] font-black tracking-[0.2em] text-black">{p.sku}</span>
+                          </div>
+                       </div>
+                       <p className="text-[10px] font-black text-blue-600">₦{p.price.toLocaleString()}</p>
+                    </div>
+                  ))}
                </div>
             </div>
           )}
