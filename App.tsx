@@ -25,6 +25,7 @@ interface OperationTask {
 
 const App: React.FC = () => {
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isGlobalLoading, setIsGlobalLoading] = useState(false);
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -41,6 +42,8 @@ const App: React.FC = () => {
   const [loginRole, setLoginRole] = useState<UserRole>('Seller');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginStep, setLoginStep] = useState<'credentials' | 'verification'>('credentials');
+  const [verificationCode, setVerificationCode] = useState('');
   const [loginError, setLoginError] = useState('');
 
   const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register' | 'Transactions' | 'Revenue' | 'Settings' | 'Approvals'>('Dashboard');
@@ -71,13 +74,14 @@ const App: React.FC = () => {
 
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [editingSeller, setEditingSeller] = useState<Seller | null>(null);
+  const [isStaffEmailVerified, setIsStaffEmailVerified] = useState(false);
+  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
 
   const [branchCarts, setBranchCarts] = useState<Record<string, CartItem[]>>(() => {
     const saved = localStorage.getItem('supermart_carts');
     return saved ? JSON.parse(saved) : {};
   });
 
-  // Date Filters
   const [txStartDate, setTxStartDate] = useState('');
   const [txEndDate, setTxEndDate] = useState('');
   const [revStartDate, setRevStartDate] = useState('');
@@ -97,6 +101,13 @@ const App: React.FC = () => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+  };
+
+  const isValidEmailFormat = (email: string) => {
+    const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!re.test(email)) return false;
+    const parts = email.split('@');
+    return parts.length === 2 && parts[1].includes('.');
   };
 
   const addNotification = async (message: string, type: 'info' | 'alert' | 'success' = 'info') => {
@@ -133,13 +144,6 @@ const App: React.FC = () => {
     localStorage.setItem('supermart_theme', theme);
   }, [theme]);
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good Morning';
-    if (hour < 17) return 'Good Afternoon';
-    return 'Good Evening';
-  }, []);
-
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('supermart_session', JSON.stringify(currentUser));
@@ -171,7 +175,7 @@ const App: React.FC = () => {
         }
       }
     } catch (err) {
-      showToast("Store sync failed", "error");
+      showToast("Could not load the store", "error");
     } finally {
       setTimeout(() => setIsInitializing(false), 800);
     }
@@ -247,7 +251,7 @@ const App: React.FC = () => {
       tasks.push({
         id: 'out',
         title: 'Empty Shelves!',
-        desc: `${outOfStock.length} items are sold out at ${activeBranch?.name}. Order more now!`,
+        desc: `${outOfStock.length} items are sold out at ${activeBranch?.name}. Add more now!`,
         type: 'critical'
       });
     }
@@ -255,35 +259,59 @@ const App: React.FC = () => {
     if (lowStock.length > 0) {
       tasks.push({
         id: 'low',
-        title: 'Low Stock Level',
-        desc: `${lowStock.length} items are running low. Restock soon.`,
+        title: 'Running Low',
+        desc: `${lowStock.length} items are almost finished. Buy more soon!`,
         type: 'info'
       });
     }
     return tasks;
   }, [activeBranchProducts, activeBranch]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    setIsGlobalLoading(true);
+    
+    await new Promise(r => setTimeout(r, 1500));
+
     if (loginRole === 'Admin') {
       if (loginPassword === config.adminPassword) {
         const adminUser = { role: 'Admin' as UserRole, name: 'Shop Boss', branchId: config.branches[0]?.id || '' };
         setCurrentUser(adminUser);
         setSelectedBranchId(adminUser.branchId);
-        showToast(`Welcome, Boss!`, "success");
+        showToast(`Welcome back, Boss!`, "success");
       } else {
         setLoginError('Password is wrong');
       }
+      setIsGlobalLoading(false);
     } else {
-      const seller = config.sellers.find(s => s.email === loginEmail && s.password === loginPassword);
-      if (seller) {
-        const staffUser = { role: 'Seller' as UserRole, name: seller.name, branchId: seller.branchId };
-        setCurrentUser(staffUser);
-        setSelectedBranchId(staffUser.branchId);
-        showToast(`Hi ${seller.name}, good shift!`, "success");
+      if (loginStep === 'credentials') {
+        if (!isValidEmailFormat(loginEmail)) {
+          setLoginError('That email looks wrong (example: me@gmail.com)');
+          setIsGlobalLoading(false);
+          return;
+        }
+        const seller = config.sellers.find(s => s.email === loginEmail && s.password === loginPassword);
+        if (seller) {
+          setLoginStep('verification');
+          showToast("We sent a code to your email (try 1234)", "info");
+        } else {
+          setLoginError('Email or Pin is wrong');
+        }
+        setIsGlobalLoading(false);
       } else {
-        setLoginError('Wrong email or pin');
+        if (verificationCode === '1234') {
+          const seller = config.sellers.find(s => s.email === loginEmail);
+          const staffUser = { role: 'Seller' as UserRole, name: seller!.name, branchId: seller!.branchId };
+          setCurrentUser(staffUser);
+          setSelectedBranchId(staffUser.branchId);
+          showToast(`Hi ${seller!.name}, you're logged in!`, "success");
+          setLoginStep('credentials');
+          setVerificationCode('');
+        } else {
+          setLoginError('Invalid code');
+        }
+        setIsGlobalLoading(false);
       }
     }
   };
@@ -296,10 +324,13 @@ const App: React.FC = () => {
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setIsGlobalLoading(true);
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
+        await new Promise(r => setTimeout(r, 1200));
         setConfig(prev => ({ ...prev, logoUrl: reader.result as string }));
-        showToast("Branding updated", "success");
+        showToast("New logo saved!", "success");
+        setIsGlobalLoading(false);
       };
       reader.readAsDataURL(file);
     }
@@ -311,14 +342,14 @@ const App: React.FC = () => {
 
   const addToCart = (product: Product) => {
     if (product.quantity <= 0) {
-      showToast("SORRY, ITEM IS SOLD OUT", "error");
+      showToast("Sorry, this is sold out!", "error");
       return;
     }
     const currentCart = [...cart];
     const existing = currentCart.find(i => i.id === product.id);
     if (existing) {
       if (existing.cartQuantity >= product.quantity) {
-        showToast(`No more pieces in stock`, "info");
+        showToast(`No more left in stock`, "info");
         return;
       }
       const updated = currentCart.map(i => i.id === product.id ? { ...i, cartQuantity: i.cartQuantity + 1 } : i);
@@ -328,13 +359,30 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCartQuantityChange = (productId: string, val: string) => {
+    const num = parseInt(val) || 0;
+    const real = activeBranchProducts.find(p => p.id === productId);
+    if (!real) return;
+    
+    let targetNum = num;
+    if (targetNum > real.quantity) {
+      showToast(`We only have ${real.quantity} left`, "info");
+      targetNum = real.quantity;
+    }
+    
+    const updated = cart.map(i => i.id === productId ? { ...i, cartQuantity: targetNum } : i).filter(i => i.cartQuantity >= 0);
+    updateBranchCart(updated);
+  };
+
   const removeFromCart = (productId: string) => {
     const updated = cart.filter(i => i.id !== productId);
     updateBranchCart(updated);
-    showToast("Removed from cart", "info");
+    showToast("Removed from basket", "info");
   };
 
   const completeCheckout = async () => {
+    setIsGlobalLoading(true);
+    await new Promise(r => setTimeout(r, 2000));
     const total = cart.reduce((acc, i) => acc + (i.price * i.cartQuantity), 0);
     const totalCost = cart.reduce((acc, i) => acc + (i.costPrice * i.cartQuantity), 0);
     const tx: Transaction = {
@@ -349,11 +397,14 @@ const App: React.FC = () => {
     updateBranchCart([]);
     setIsBasketOpen(false);
     setReceiptToShow(tx);
-    showToast("Sale completed!", "success");
-    addNotification(`Staff ${currentUser?.name} finished a sale of ₦${total.toLocaleString()}. Profit: ₦${(total - totalCost).toLocaleString()}.`, 'success');
+    showToast("Sold! Paper printing...", "success");
+    addNotification(`${currentUser?.name} sold items worth ₦${total.toLocaleString()}. Profit: ₦${(total - totalCost).toLocaleString()}.`, 'success');
+    setIsGlobalLoading(false);
   };
 
   const handleSaveProduct = async (data: Omit<Product, 'id' | 'lastUpdated' | 'sku'>) => {
+    setIsGlobalLoading(true);
+    await new Promise(r => setTimeout(r, 1500));
     const isEditing = !!editingProduct;
     const productId = editingProduct ? editingProduct.id : Math.random().toString(36).substr(2, 9);
     
@@ -370,7 +421,7 @@ const App: React.FC = () => {
       };
       await db.addApprovalRequest(approvalReq);
       showToast("Sent to Boss for checking", "info");
-      addNotification(`Staff member ${currentUser.name} requested to ${isEditing ? 'update' : 'add'} ${data.name}. Check the Approval Queue.`, 'info');
+      addNotification(`${currentUser.name} wants to ${isEditing ? 'change' : 'add'} ${data.name}. Go to Requests to see it.`, 'info');
       setIsModalOpen(false);
       setEditingProduct(null);
     } else {
@@ -380,18 +431,21 @@ const App: React.FC = () => {
       await loadBranchData();
       setIsModalOpen(false);
       setEditingProduct(null);
-      showToast("Stock updated!", "success");
-      addNotification(`Boss manually updated item info for: ${data.name}.`, 'success');
+      showToast("Item saved!", "success");
+      addNotification(`Boss updated item: ${data.name}.`, 'success');
     }
+    setIsGlobalLoading(false);
   };
 
   const deleteProduct = (id: string) => {
     const product = activeBranchProducts.find(p => p.id === id);
     setConfirmModal({
       isOpen: true,
-      title: "Remove item?",
-      message: `Delete ${product?.name}? ${currentUser?.role === 'Seller' ? 'Boss will need to approve this.' : 'Deleting now.'}`,
+      title: "Delete item?",
+      message: `Really remove ${product?.name}? ${currentUser?.role === 'Seller' ? 'The Boss must say yes first.' : 'Deleting now.'}`,
       onConfirm: async () => {
+        setIsGlobalLoading(true);
+        await new Promise(r => setTimeout(r, 1200));
         if (currentUser?.role === 'Seller') {
           const approvalReq: ApprovalRequest = {
             id: Math.random().toString(36).substr(2, 9),
@@ -404,20 +458,23 @@ const App: React.FC = () => {
             status: 'PENDING'
           };
           await db.addApprovalRequest(approvalReq);
-          showToast("Request sent to Boss", "info");
-          addNotification(`Staff member ${currentUser.name} requested to remove: ${product?.name}.`, 'alert');
+          showToast("Sent to Boss", "info");
+          addNotification(`${currentUser.name} wants to delete: ${product?.name}.`, 'alert');
         } else {
           await db.deleteProduct(id);
           await loadBranchData();
-          showToast("Deleted", "info");
-          addNotification(`Boss deleted item: ${product?.name} from branch stock.`, 'alert');
+          showToast("Deleted!", "info");
+          addNotification(`Boss deleted item: ${product?.name}.`, 'alert');
         }
         setConfirmModal(null);
+        setIsGlobalLoading(false);
       }
     });
   };
 
   const handleProcessApproval = async (req: ApprovalRequest, status: 'APPROVED' | 'DECLINED') => {
+    setIsGlobalLoading(true);
+    await new Promise(r => setTimeout(r, 1200));
     await db.updateApprovalStatus(req.id, status);
     if (status === 'APPROVED') {
       if (req.actionType === 'DELETE') {
@@ -437,36 +494,38 @@ const App: React.FC = () => {
         };
         await db.upsertProduct(product, req.branchId);
       }
-      showToast("Approved!", "success");
-      addNotification(`Boss approved ${req.requestedBy}'s request to ${req.actionType.toLowerCase()} ${req.productData.name}.`, 'success');
+      showToast("Request Accepted!", "success");
+      addNotification(`Boss said YES to ${req.requestedBy}'s request for ${req.productData.name}.`, 'success');
     } else {
-      showToast("Rejected", "info");
-      addNotification(`Boss declined ${req.requestedBy}'s request to ${req.actionType.toLowerCase()} ${req.productData.name}.`, 'alert');
+      showToast("Request Rejected", "info");
+      addNotification(`Boss said NO to ${req.requestedBy}'s request for ${req.productData.name}.`, 'alert');
     }
-    loadBranchData();
+    await loadBranchData();
+    setIsGlobalLoading(false);
   };
 
   const handleWipeBranch = async (branchId: string) => {
-    const branchName = config.branches.find(b => b.id === branchId)?.name || 'Branch';
+    const branchName = config.branches.find(b => b.id === branchId)?.name || 'Store';
     setConfirmModal({
       isOpen: true,
-      title: `WIPE ${branchName.toUpperCase()}?`,
-      message: `This will delete ALL sales, inventory, and activity for ${branchName}. YOU CANNOT UNDO THIS.`,
+      title: `CLEAN OUT ${branchName.toUpperCase()}?`,
+      message: `This will delete EVERYTHING for ${branchName} (sales, stock, etc). You can't undo this!`,
       isDangerous: true,
       onConfirm: async () => {
         setConfirmModal(null);
-        setIsInitializing(true);
+        setIsGlobalLoading(true);
         try {
           await db.wipeBranchData(branchId);
-          showToast(`${branchName} data cleared`, "success");
+          await new Promise(r => setTimeout(r, 2000));
+          showToast(`${branchName} is now empty`, "success");
           if (selectedBranchId === branchId) {
             await loadBranchData();
           }
           await initApp();
         } catch (e) {
-          showToast("Wipe failed", "error");
+          showToast("Failed to clean store", "error");
         } finally {
-          setIsInitializing(false);
+          setIsGlobalLoading(false);
           setIsWipeModalOpen(false);
         }
       }
@@ -508,9 +567,21 @@ const App: React.FC = () => {
     [activeBranchProducts]
   );
 
+  const handleVerifyStaffEmail = async (email: string) => {
+    if (!isValidEmailFormat(email)) {
+      showToast("That email doesn't look right!", "error");
+      return;
+    }
+    setIsVerifyingEmail(true);
+    await new Promise(r => setTimeout(r, 2000));
+    setIsStaffEmailVerified(true);
+    showToast(`Email ${email} is real and ready!`, "success");
+    setIsVerifyingEmail(false);
+  };
+
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-center px-6">
         <div className="h-1 w-48 bg-white/10 rounded-full overflow-hidden relative mb-6">
           <div className="absolute inset-y-0 left-0 bg-blue-600 animate-loading-bar rounded-full"></div>
         </div>
@@ -519,9 +590,17 @@ const App: React.FC = () => {
     );
   }
 
+  const LoadingOverlay = ({ message = "Just a second..." }: { message?: string }) => (
+    <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
+      <div className="w-16 h-16 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
+      <p className="mt-6 text-[10px] font-black text-white uppercase tracking-[0.3em] animate-pulse">{message}</p>
+    </div>
+  );
+
   if (!currentUser) {
     return (
       <div className={`min-h-screen flex items-center justify-center p-6 transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'}`}>
+        {isGlobalLoading && <LoadingOverlay message="Logging you in..." />}
         <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl transition-all ${theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}>
           <div className="text-center mb-10">
             {config.logoUrl ? (
@@ -530,29 +609,48 @@ const App: React.FC = () => {
               <div className="w-20 h-20 bg-blue-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-white shadow-xl"><ICONS.Inventory /></div>
             )}
             <h1 className={`text-3xl font-black tracking-tight uppercase leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{config.supermarketName}</h1>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 italic">Login Area</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 italic">Staff Login Area</p>
           </div>
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl mb-8">
-            {(['Seller', 'Admin'] as UserRole[]).map(r => (
-              <button key={r} onClick={() => setLoginRole(r)} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${loginRole === r ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-md' : 'text-slate-400'}`}>
-                {r === 'Seller' ? 'Cashier' : 'Boss (Admin)'}
-              </button>
-            ))}
-          </div>
-          <form onSubmit={handleLogin} className="space-y-6">
-            {loginRole === 'Seller' && (
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Work Email</label>
-                <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} />
+          
+          {loginStep === 'credentials' ? (
+            <>
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl mb-8">
+                {(['Seller', 'Admin'] as UserRole[]).map(r => (
+                  <button key={r} onClick={() => { setLoginRole(r); setLoginError(''); }} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${loginRole === r ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-md' : 'text-slate-400'}`}>
+                    {r === 'Seller' ? 'Cashier' : 'Boss (Admin)'}
+                  </button>
+                ))}
               </div>
-            )}
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{loginRole === 'Admin' ? 'Admin Password' : 'Staff Pin'}</label>
-              <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
-            </div>
-            {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
-            <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all">Start Work</button>
-          </form>
+              <form onSubmit={handleLogin} className="space-y-6">
+                {loginRole === 'Seller' && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
+                    <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{loginRole === 'Admin' ? 'Admin Password' : 'Staff Pin'}</label>
+                  <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
+                </div>
+                {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
+                <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all">Start Work</button>
+              </form>
+            </>
+          ) : (
+            <form onSubmit={handleLogin} className="space-y-6">
+              <div className="text-center mb-6">
+                <p className="text-xs font-bold text-slate-500">We sent a secret code to</p>
+                <p className="text-xs font-black text-blue-600">{loginEmail}</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">4-Digit Code</label>
+                <input type="text" maxLength={4} required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold text-center text-2xl tracking-[1em]" value={verificationCode} onChange={e => setVerificationCode(e.target.value)} />
+              </div>
+              {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
+              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all">Verify & Enter</button>
+              <button type="button" onClick={() => setLoginStep('credentials')} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 transition-colors">Go Back</button>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -560,23 +658,30 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+      {(isGlobalLoading || isVerifyingEmail) && <LoadingOverlay message={isVerifyingEmail ? "Checking if email is real..." : undefined} />}
       {isSwitchingBranch && (
         <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-xl animate-in fade-in duration-300">
            <div className="w-20 h-20 mb-8 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-           <h2 className="text-xl font-black text-white uppercase tracking-widest">Changing Shop</h2>
-           <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em] mt-2 animate-pulse">Syncing items at {activeBranch?.name}</p>
+           <h2 className="text-xl font-black text-white uppercase tracking-widest">Changing Store...</h2>
+           <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em] mt-2 animate-pulse">Checking stock at {activeBranch?.name}</p>
         </div>
       )}
 
-      {/* Notifications Drawer */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 z-[40] bg-slate-950/50 backdrop-blur-sm lg:hidden animate-in fade-in duration-300" 
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {isNotificationsOpen && (
          <div className="fixed inset-0 z-[120] flex justify-end">
             <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => { setIsNotificationsOpen(false); markAllRead(); }}></div>
             <div className={`relative w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-300 ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
                <div className="p-8 border-b dark:border-slate-800 flex items-center justify-between shrink-0">
                   <div className="min-w-0 pr-4">
-                     <h3 className="text-xl font-black uppercase tracking-tight italic leading-none dark:text-white">Activity Logs</h3>
-                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2">Personal records for {currentUser.name}</p>
+                     <h3 className="text-xl font-black uppercase tracking-tight italic leading-none dark:text-white">Recent Activity</h3>
+                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2">Logs for {currentUser.name}</p>
                   </div>
                   <button onClick={() => { setIsNotificationsOpen(false); markAllRead(); }} className={`p-4 rounded-2xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                </div>
@@ -584,7 +689,7 @@ const App: React.FC = () => {
                   {visibleNotifications.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-slate-300 opacity-20">
                        <div className="scale-150 mb-6"><ICONS.Bell /></div>
-                       <p className="text-[10px] font-black uppercase tracking-widest mt-4">No recent activity</p>
+                       <p className="text-[10px] font-black uppercase tracking-widest mt-4">Nothing happened yet</p>
                     </div>
                   ) : visibleNotifications.map(n => (
                     <div key={n.id} className={`p-6 rounded-[2rem] border transition-all ${new Date(n.timestamp).getTime() <= lastViewedAt ? 'opacity-60 grayscale-[0.5]' : 'bg-slate-50 dark:bg-slate-800 border-blue-100 dark:border-blue-900/30 shadow-md ring-1 ring-blue-500/20'}`}>
@@ -597,19 +702,18 @@ const App: React.FC = () => {
                   ))}
                </div>
                <div className="p-8 border-t dark:border-slate-800 text-center flex flex-col gap-3">
-                  <button onClick={() => { markAllRead(); setIsNotificationsOpen(false); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all">Close and clear badge</button>
-                  <button onClick={clearLogsLocally} className="text-[10px] font-black uppercase text-rose-500 hover:text-rose-600 transition-colors tracking-widest">Clear history view</button>
+                  <button onClick={() => { markAllRead(); setIsNotificationsOpen(false); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all">Clear & Close</button>
+                  <button onClick={clearLogsLocally} className="text-[10px] font-black uppercase text-rose-500 hover:text-rose-600 transition-colors tracking-widest">Wipe Log view</button>
                </div>
             </div>
          </div>
       )}
 
-      {/* Wipe Branch Modal */}
       {isWipeModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md">
           <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 duration-200 ${theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-white' : 'bg-white text-slate-900'}`}>
-            <h3 className="text-xl font-black mb-4 uppercase tracking-tight">Select Branch to Wipe</h3>
-            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed italic">Warning: This will clear every piece of data for the selected store branch.</p>
+            <h3 className="text-xl font-black mb-4 uppercase tracking-tight">Pick a Store to Wipe</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed italic">Warning: This will delete every item and sale for this store forever.</p>
             <div className="space-y-3 mb-10 overflow-y-auto max-h-[300px] custom-scrollbar pr-2">
               {config.branches.map(b => (
                 <button 
@@ -627,7 +731,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Confirmation Overlay */}
       {confirmModal && (
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-6">
            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setConfirmModal(null)}></div>
@@ -635,8 +738,8 @@ const App: React.FC = () => {
               <h3 className="text-xl font-black mb-4 uppercase tracking-tight">{confirmModal.title}</h3>
               <p className="text-sm font-bold text-slate-500 mb-10 leading-relaxed">{confirmModal.message}</p>
               <div className="flex gap-4">
-                 <button onClick={() => setConfirmModal(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest">No, Cancel</button>
-                 <button onClick={confirmModal.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest ${confirmModal.isDangerous ? 'bg-rose-600' : 'bg-blue-600'}`}>Yes, Continue</button>
+                 <button onClick={() => setConfirmModal(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest">Stop</button>
+                 <button onClick={confirmModal.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest ${confirmModal.isDangerous ? 'bg-rose-600' : 'bg-blue-600'}`}>Yes, do it</button>
               </div>
            </div>
         </div>
@@ -652,7 +755,7 @@ const App: React.FC = () => {
             )}
             <div className="min-w-0">
               <h1 className="text-lg font-black italic truncate uppercase leading-none tracking-tighter">{config.supermarketName}</h1>
-              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Shop Manager</p>
+              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Store Manager</p>
             </div>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-slate-400 hover:text-white">
@@ -661,13 +764,13 @@ const App: React.FC = () => {
         </div>
         <nav className="flex-1 p-6 space-y-2 overflow-y-auto custom-scrollbar">
           {[
-            { id: 'Dashboard', icon: <ICONS.Dashboard />, label: 'Home Overview' },
-            { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Manage Stock' },
-            { id: 'Register', icon: <ICONS.Register />, label: 'Sell Items' },
-            { id: 'Transactions', icon: <ICONS.Register />, label: 'Sales Records' },
-            { id: 'Revenue', icon: <ICONS.Revenue />, label: 'Profit & Loss', adminOnly: true },
-            { id: 'Approvals', icon: <ICONS.Alert />, label: 'Approval Queue', adminOnly: true, count: pendingApprovals.length },
-            { id: 'Settings', icon: <ICONS.Dashboard />, label: 'Shop Settings', adminOnly: true }
+            { id: 'Dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' },
+            { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Stock Room' },
+            { id: 'Register', icon: <ICONS.Register />, label: 'Check Out' },
+            { id: 'Transactions', icon: <ICONS.Register />, label: 'Sales History' },
+            { id: 'Revenue', icon: <ICONS.Revenue />, label: 'Money Report', adminOnly: true },
+            { id: 'Approvals', icon: <ICONS.Alert />, label: 'Requests', adminOnly: true, count: pendingApprovals.length },
+            { id: 'Settings', icon: <ICONS.Dashboard />, label: 'Settings', adminOnly: true }
           ].map(item => (
             (!item.adminOnly || currentUser.role === 'Admin') && (
               <button key={item.id} onClick={() => { setActiveTab(item.id as any); setIsSidebarOpen(false); }} className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl transition-all font-bold text-sm ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>
@@ -689,7 +792,7 @@ const App: React.FC = () => {
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-xl font-black uppercase tracking-tight leading-none truncate">{activeTab === 'Revenue' ? 'Profit Matrix' : activeTab}</h2>
+              <h2 className="text-sm sm:text-xl font-black uppercase tracking-tight leading-none truncate">{activeTab === 'Revenue' ? 'Money Report' : activeTab}</h2>
               <p className="hidden md:block text-[9px] font-black text-blue-600 uppercase tracking-widest mt-1 italic truncate">Hello, {currentUser.name}</p>
             </div>
           </div>
@@ -727,15 +830,15 @@ const App: React.FC = () => {
           {activeTab === 'Dashboard' && (
             <div className="space-y-6 sm:space-y-10 max-w-7xl mx-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                <StatCard title="Variety Count" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" theme={theme} />
-                <StatCard title="Value of Stock" value={`₦${stats.totalValue.toLocaleString()}`} icon={<ICONS.Inventory />} color="blue" theme={theme} />
-                <StatCard title="Low items" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" alert={stats.lowStockCount > 0} theme={theme} />
-                <StatCard title="Today's Sales" value={`₦${activeBranchTransactions.filter(t => new Date(t.timestamp).toDateString() === new Date().toDateString()).reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="emerald" theme={theme} />
+                <StatCard title="Total Items" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" theme={theme} />
+                <StatCard title="Stock Value" value={`₦${stats.totalValue.toLocaleString()}`} icon={<ICONS.Inventory />} color="blue" theme={theme} />
+                <StatCard title="Low Warning" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" alert={stats.lowStockCount > 0} theme={theme} />
+                <StatCard title="Today's Money" value={`₦${activeBranchTransactions.filter(t => new Date(t.timestamp).toDateString() === new Date().toDateString()).reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="emerald" theme={theme} />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                  <div className={`lg:col-span-1 rounded-[3rem] p-6 sm:p-8 border shadow-sm flex flex-col min-h-[300px] sm:min-h-[400px] transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 italic">Items Ending Soon</h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 italic">Items Finishing</h3>
                     <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar pr-2">
                        {lowStockItems.length > 0 ? lowStockItems.map(item => (
                          <div key={item.id}>
@@ -747,13 +850,13 @@ const App: React.FC = () => {
                                <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${Math.max(10, (item.quantity / (item.minThreshold || 1)) * 100)}%` }}></div>
                             </div>
                          </div>
-                       )) : <p className="text-[10px] font-black uppercase text-slate-300 italic py-20 text-center">Stock is full!</p>}
+                       )) : <p className="text-[10px] font-black uppercase text-slate-300 italic py-20 text-center">Stock looks good!</p>}
                     </div>
                  </div>
 
                  <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-6 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col min-h-[300px] sm:min-h-[400px]">
                     <div className="relative z-10 h-full flex flex-col">
-                       <h3 className="text-lg font-black text-white uppercase tracking-tight mb-8 italic">Urgent News</h3>
+                       <h3 className="text-lg font-black text-white uppercase tracking-tight mb-8 italic">To-Do List</h3>
                        <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 text-slate-200">
                           {operationTasks.map(task => (
                             <div key={task.id} className={`p-6 rounded-3xl border ${task.type === 'critical' ? 'bg-rose-500/10 border-rose-500/20 text-rose-100' : 'bg-blue-500/10 border-blue-500/20 text-blue-100'}`}>
@@ -761,7 +864,7 @@ const App: React.FC = () => {
                                <p className="text-sm font-medium leading-relaxed">{task.desc}</p>
                             </div>
                           ))}
-                          {operationTasks.length === 0 && <p className="text-[10px] font-black uppercase text-slate-600 tracking-[0.4em] text-center mt-20 italic">No urgent news</p>}
+                          {operationTasks.length === 0 && <p className="text-[10px] font-black uppercase text-slate-600 tracking-[0.4em] text-center mt-20 italic">Nothing to worry about</p>}
                        </div>
                     </div>
                  </div>
@@ -784,7 +887,7 @@ const App: React.FC = () => {
                       </div>
                       <div className="mt-4">
                         <div className={`px-2 py-0.5 rounded-lg text-[8px] font-black w-fit uppercase ${p.quantity <= 0 ? 'bg-rose-100 text-rose-600' : p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
-                          {p.quantity <= 0 ? 'SOLD OUT' : `${p.quantity} Units`}
+                          {p.quantity <= 0 ? 'SOLD OUT' : `${p.quantity} Left`}
                         </div>
                       </div>
                    </button>
@@ -798,13 +901,13 @@ const App: React.FC = () => {
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                    <div className="relative flex-1 w-full max-w-md">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                      <input type="text" placeholder="Find items..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                      <input type="text" placeholder="Find an item..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                    </div>
-                   <button onClick={() => { setEditingProduct(null); setIsModalOpen(true); }} className="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Add New Product</button>
+                   <button onClick={() => { setEditingProduct(null); setIsModalOpen(true); }} className="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Add New Item</button>
                 </div>
                 <div className={`rounded-[2.5rem] border overflow-hidden shadow-sm overflow-x-auto ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                    <table className="w-full text-left min-w-[700px]">
-                      <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Item details</th><th className="px-10 py-6">Selling Price</th><th className="px-10 py-6 text-center">In Stock</th><th className="px-10 py-6 text-right">Options</th></tr></thead>
+                      <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Item Name</th><th className="px-10 py-6">Store Price</th><th className="px-10 py-6 text-center">In Stock</th><th className="px-10 py-6 text-right">Actions</th></tr></thead>
                       <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800' : 'divide-slate-100'}`}>
                          {filteredProducts.map(p => (
                            <tr key={p.id} className="hover:bg-blue-50/5 transition-all">
@@ -825,34 +928,33 @@ const App: React.FC = () => {
 
           {activeTab === 'Approvals' && currentUser.role === 'Admin' && (
             <div className="max-w-7xl mx-auto space-y-6">
-              <h3 className="text-xl font-black uppercase italic tracking-tighter dark:text-white">New Requests</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4">Boss, check and confirm these staff changes</p>
+              <h3 className="text-xl font-black uppercase italic tracking-tighter dark:text-white">Staff Requests</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4">Boss, check these updates from your staff</p>
               {pendingApprovals.length === 0 ? (
-                <div className="py-24 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[3rem] text-slate-300 font-black uppercase text-xs">No pending requests right now</div>
+                <div className="py-24 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[3rem] text-slate-300 font-black uppercase text-xs">No requests right now</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {pendingApprovals.map(req => (
                     <div key={req.id} className={`p-8 rounded-[3rem] border transition-all ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
                       <div className="flex justify-between items-start mb-6">
                         <div>
-                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${req.actionType === 'ADD' ? 'bg-emerald-100 text-emerald-600' : req.actionType === 'EDIT' ? 'bg-blue-100 text-blue-600' : 'bg-rose-100 text-rose-600'}`}>{req.actionType} REQUEST</span>
-                          <h4 className="text-lg font-black uppercase mt-2">{req.productData.name || 'Untitled'}</h4>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sent by {req.requestedBy} • {new Date(req.timestamp).toLocaleTimeString()}</p>
+                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${req.actionType === 'ADD' ? 'bg-emerald-100 text-emerald-600' : req.actionType === 'EDIT' ? 'bg-blue-100 text-blue-600' : 'bg-rose-100 text-rose-600'}`}>{req.actionType} ITEM</span>
+                          <h4 className="text-lg font-black uppercase mt-2">{req.productData.name || 'Something'}</h4>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">From {req.requestedBy} • {new Date(req.timestamp).toLocaleTimeString()}</p>
                         </div>
                       </div>
                       <div className={`p-6 rounded-3xl mb-6 text-xs space-y-3 ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-50'}`}>
                         {req.actionType !== 'DELETE' && (
                           <>
                             <div className="flex justify-between"><span className="text-slate-400">Price:</span><span className="font-black text-blue-600">₦{req.productData.price?.toLocaleString()}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-400">Stock Count:</span><span className="font-black">{req.productData.quantity} Units</span></div>
-                            <div className="flex justify-between"><span className="text-slate-400">Alert Level:</span><span className="font-black">{req.productData.minThreshold} Units</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Quantity:</span><span className="font-black">{req.productData.quantity} Units</span></div>
                           </>
                         )}
-                        {req.actionType === 'DELETE' && <p className="text-rose-500 font-bold italic">Staff wants to remove this item forever.</p>}
+                        {req.actionType === 'DELETE' && <p className="text-rose-500 font-bold italic">They want to delete this forever.</p>}
                       </div>
                       <div className="flex gap-4">
-                        <button onClick={() => handleProcessApproval(req, 'DECLINED')} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">Decline</button>
-                        <button onClick={() => handleProcessApproval(req, 'APPROVED')} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg">Approve</button>
+                        <button onClick={() => handleProcessApproval(req, 'DECLINED')} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">No</button>
+                        <button onClick={() => handleProcessApproval(req, 'APPROVED')} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg">Yes, Approve</button>
                       </div>
                     </div>
                   ))}
@@ -865,10 +967,10 @@ const App: React.FC = () => {
             <div className="max-w-7xl mx-auto space-y-6">
                <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm">
                   <div className="flex-1 w-full space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Receipt Search</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Search Receipts</label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                      <input type="text" placeholder="Search ID..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
+                      <input type="text" placeholder="Type Receipt ID..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
                     </div>
                   </div>
                   <div className="w-full md:w-auto space-y-2">
@@ -880,7 +982,7 @@ const App: React.FC = () => {
                     <input type="date" value={txEndDate} onChange={e => setTxEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                   </div>
                   {(txStartDate || txEndDate || searchTermTransactions) && (
-                    <button onClick={() => { setTxStartDate(''); setTxEndDate(''); setSearchTermTransactions(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all">Clear</button>
+                    <button onClick={() => { setTxStartDate(''); setTxEndDate(''); setSearchTermTransactions(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all">Reset</button>
                   )}
                </div>
 
@@ -905,22 +1007,22 @@ const App: React.FC = () => {
           {activeTab === 'Revenue' && currentUser.role === 'Admin' && (
              <div className="max-w-7xl mx-auto space-y-10">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                   <StatCard title="Total Cash Made" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="blue" theme={theme} />
-                   <StatCard title="Total Cost of Items" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0).toLocaleString()}`} icon={<ICONS.Inventory />} color="amber" theme={theme} />
-                   <StatCard title="Total Profit" value={`₦${(filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) - filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0)).toLocaleString()}`} icon={<ICONS.Dashboard />} color="emerald" theme={theme} />
-                   <StatCard title="Margin Ratio" value={`${((filteredRevenueTransactions.reduce((acc, t) => acc + (t.total - t.totalCost), 0) / (filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) || 1)) * 100).toFixed(1)}%`} icon={<ICONS.Register />} color="slate" theme={theme} />
+                   <StatCard title="Total Money In" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="blue" theme={theme} />
+                   <StatCard title="What we Spent" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0).toLocaleString()}`} icon={<ICONS.Inventory />} color="amber" theme={theme} />
+                   <StatCard title="Money Made" value={`₦${(filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) - filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0)).toLocaleString()}`} icon={<ICONS.Dashboard />} color="emerald" theme={theme} />
+                   <StatCard title="Profit Percent" value={`${((filteredRevenueTransactions.reduce((acc, t) => acc + (t.total - t.totalCost), 0) / (filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) || 1)) * 100).toFixed(1)}%`} icon={<ICONS.Register />} color="slate" theme={theme} />
                 </div>
 
                 <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm">
                   <div className="flex-1 w-full space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Filter Log by Date</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Filter by Date</label>
                     <div className="grid grid-cols-2 gap-4">
                       <input type="date" value={revStartDate} onChange={e => setRevStartDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                       <input type="date" value={revEndDate} onChange={e => setRevEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                     </div>
                   </div>
                   {(revStartDate || revEndDate) && (
-                    <button onClick={() => { setRevStartDate(''); setRevEndDate(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all font-black uppercase text-[10px]">Reset Filters</button>
+                    <button onClick={() => { setRevStartDate(''); setRevEndDate(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all font-black uppercase text-[10px]">Clear Filter</button>
                   )}
                 </div>
 
@@ -928,7 +1030,7 @@ const App: React.FC = () => {
                    <h3 className="text-xl font-black uppercase mb-8 italic tracking-tighter dark:text-white">Profit Log</h3>
                    <div className="overflow-x-auto">
                       <table className="w-full text-left min-w-[700px]">
-                         <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-8 py-6">Sale Date</th><th className="px-8 py-6">Amount Received</th><th className="px-8 py-6">Profit Earned</th><th className="px-8 py-6 text-right">Performance</th></tr></thead>
+                         <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-8 py-6">Date & Time</th><th className="px-8 py-6">Total Sale</th><th className="px-8 py-6">Profit</th><th className="px-8 py-6 text-right">Result</th></tr></thead>
                          <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-white' : 'divide-slate-100'}`}>
                             {filteredRevenueTransactions.map(t => (
                               <tr key={t.id} className="text-xs hover:bg-slate-50/5 transition-all">
@@ -948,32 +1050,34 @@ const App: React.FC = () => {
           {activeTab === 'Settings' && currentUser.role === 'Admin' && (
             <div className="max-w-4xl mx-auto space-y-10 pb-40">
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Branding</h3>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Logo & Name</h3>
                   <div className="space-y-8">
                     <div className={`flex flex-col sm:flex-row items-center gap-6 p-6 rounded-[2.5rem] border-2 border-dashed ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="w-24 h-24 bg-slate-200 rounded-[2rem] flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
-                        {config.logoUrl ? <img src={config.logoUrl} className="w-full h-full object-cover" alt="Branding" /> : <ICONS.Inventory />}
+                        {config.logoUrl ? <img src={config.logoUrl} className="w-full h-full object-cover" alt="Logo" /> : <ICONS.Inventory />}
                       </div>
                       <div className="flex-1 text-center sm:text-left">
-                         <h4 className="text-xs font-black uppercase mb-4 tracking-widest text-slate-500">Shop Logo</h4>
-                         <button onClick={() => fileInputRef.current?.click()} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${theme === 'dark' ? 'bg-slate-700 text-white' : 'bg-white border shadow-sm'}`}>Update Image</button>
+                         <h4 className="text-xs font-black uppercase mb-4 tracking-widest text-slate-500">Store Logo</h4>
+                         <button onClick={() => fileInputRef.current?.click()} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${theme === 'dark' ? 'bg-slate-700 text-white' : 'bg-white border shadow-sm'}`}>Update Logo</button>
                          <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept="image/*" className="hidden" />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                       <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className={`px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="What is the shop name?" />
-                       <input type="password" value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className={`px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Boss Key" />
-                       <button onClick={async () => { await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword); showToast("Settings saved", "success"); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Save Store Info</button>
+                       <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className={`px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Store Name" />
+                       <input type="password" value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className={`px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Admin Password" />
+                       <button onClick={async () => { setIsGlobalLoading(true); await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword); await new Promise(r => setTimeout(r, 1200)); showToast("Settings saved!", "success"); setIsGlobalLoading(false); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Save All</button>
                     </div>
                   </div>
                </div>
 
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Branches</h3>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Store Branches</h3>
                   <form onSubmit={async (e) => {
                     e.preventDefault();
                     const form = e.target as HTMLFormElement;
                     const fd = new FormData(form);
+                    setIsGlobalLoading(true);
+                    await new Promise(r => setTimeout(r, 1200));
                     if (editingBranch) {
                       await db.updateBranch(editingBranch.id, fd.get('branchName') as string, fd.get('branchLoc') as string);
                       setEditingBranch(null);
@@ -981,15 +1085,16 @@ const App: React.FC = () => {
                     } else {
                       const branch = { id: 'br_' + Math.random().toString(36).substr(2, 5), name: fd.get('branchName') as string, location: fd.get('branchLoc') as string, createdAt: new Date().toISOString() };
                       await db.addBranch(branch);
-                      showToast("New Branch added", "success");
+                      showToast("New branch added!", "success");
                     }
                     const branches = await db.getBranches();
                     setConfig({ ...config, branches });
                     form.reset();
+                    setIsGlobalLoading(false);
                   }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                     <input name="branchName" required defaultValue={editingBranch?.name || ''} placeholder="Branch Name" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <input name="branchLoc" required defaultValue={editingBranch?.location || ''} placeholder="Branch Location" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">{editingBranch ? 'Save Branch Update' : 'Add New Branch'}</button>
+                    <input name="branchLoc" required defaultValue={editingBranch?.location || ''} placeholder="Address" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">{editingBranch ? 'Update Branch' : 'Add New Store'}</button>
                   </form>
                   <div className="space-y-4">
                     {config.branches.map(b => (
@@ -998,7 +1103,7 @@ const App: React.FC = () => {
                         <div className="flex gap-2">
                            <button onClick={() => setEditingBranch(b)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
                            {config.branches.length > 1 && (
-                             <button onClick={() => { setConfirmModal({ isOpen: true, title: "Delete Branch?", message: "This will remove all stock info for this branch.", onConfirm: async () => { await db.deleteBranch(b.id); const brs = await db.getBranches(); setConfig({...config, branches: brs}); setConfirmModal(null); showToast("Branch removed", "info"); } }); }} className="p-3 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button>
+                             <button onClick={() => { setConfirmModal({ isOpen: true, title: "Delete Store?", message: "This will remove all stock info for this store.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteBranch(b.id); const brs = await db.getBranches(); setConfig({...config, branches: brs}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Branch removed", "info"); setIsGlobalLoading(false); } }); }} className="p-3 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button>
                            )}
                         </div>
                       </div>
@@ -1007,28 +1112,41 @@ const App: React.FC = () => {
                </div>
 
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Personnel Management</h3>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Staff Members</h3>
                   <form onSubmit={async (e) => {
                     e.preventDefault();
+                    if (!isStaffEmailVerified) {
+                      showToast("Check the email first!", "error");
+                      return;
+                    }
                     const form = e.target as HTMLFormElement;
                     const fd = new FormData(form);
+                    setIsGlobalLoading(true);
+                    await new Promise(r => setTimeout(r, 1200));
                     if (editingSeller) await db.deleteSeller(editingSeller.id);
                     const seller = { id: editingSeller?.id || Math.random().toString(36).substr(2, 9), name: fd.get('staffName') as string, email: fd.get('staffEmail') as string, password: fd.get('staffPin') as string, branchId: fd.get('staffBranch') as string };
                     await db.addSeller(seller);
                     setEditingSeller(null);
-                    showToast("Staff record updated", "success");
+                    setIsStaffEmailVerified(false);
+                    showToast("Staff saved!", "success");
                     const sellers = await db.getSellers();
                     setConfig({ ...config, sellers });
                     form.reset();
+                    setIsGlobalLoading(false);
                   }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
-                    <input name="staffName" required defaultValue={editingSeller?.name || ''} placeholder="Personnel Full Name" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <input name="staffEmail" required defaultValue={editingSeller?.email || ''} type="email" placeholder="Work Email" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <input name="staffPin" required defaultValue={editingSeller?.password || ''} placeholder="Personnel Login Pin" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <input name="staffName" required defaultValue={editingSeller?.name || ''} placeholder="Staff Full Name" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <div className="relative group">
+                      <input name="staffEmail" required defaultValue={editingSeller?.email || ''} type="email" placeholder="Email Address" className={`w-full px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'} ${isStaffEmailVerified ? 'border-emerald-500' : ''}`} onChange={(e) => { setIsStaffEmailVerified(false); }} />
+                      <button type="button" onClick={(e) => { const el = (e.currentTarget.previousSibling as HTMLInputElement); handleVerifyStaffEmail(el.value); }} className={`absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${isStaffEmailVerified ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'}`}>
+                        {isStaffEmailVerified ? 'Verified' : 'Verify Email'}
+                      </button>
+                    </div>
+                    <input name="staffPin" required defaultValue={editingSeller?.password || ''} placeholder="Login Pin" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
                     <select name="staffBranch" required defaultValue={editingSeller?.branchId || config.branches[0]?.id} className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`}>
                        {config.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
-                    <button type="submit" className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">{editingSeller ? 'Apply Personnel Change' : 'Register New Personnel'}</button>
-                    {editingSeller && <button type="button" onClick={() => setEditingSeller(null)} className="sm:col-span-2 text-[10px] font-black uppercase text-slate-500 py-2">Stop Editing</button>}
+                    <button type="submit" disabled={!isStaffEmailVerified} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{editingSeller ? 'Save Staff Update' : 'Register New Staff'}</button>
+                    {editingSeller && <button type="button" onClick={() => { setEditingSeller(null); setIsStaffEmailVerified(false); }} className="sm:col-span-2 text-[10px] font-black uppercase text-slate-500 py-2">Stop Editing</button>}
                   </form>
 
                   <div className="space-y-4">
@@ -1037,14 +1155,14 @@ const App: React.FC = () => {
                            <div className="min-w-0 flex-1">
                               <p className="font-black uppercase text-xs truncate">{s.name}</p>
                               <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
-                                {config.branches.find(b => b.id === s.branchId)?.name || 'N/A'} • {s.email}
+                                Store: {config.branches.find(b => b.id === s.branchId)?.name || 'N/A'} • {s.email}
                               </p>
                            </div>
                            <div className="flex items-center gap-3 shrink-0">
-                              <button onClick={() => { setEditingSeller(s); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-600 transition-all shadow-sm">
+                              <button onClick={() => { setEditingSeller(s); setIsStaffEmailVerified(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-600 transition-all shadow-sm">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                               </button>
-                              <button onClick={() => { setConfirmModal({ isOpen: true, title: "Remove Personnel?", message: "This person will no longer have access to the system.", onConfirm: async () => { await db.deleteSeller(s.id); const updated = await db.getSellers(); setConfig({...config, sellers: updated}); setConfirmModal(null); showToast("Staff deleted", "info"); } }); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-600 transition-all shadow-sm">
+                              <button onClick={() => { setConfirmModal({ isOpen: true, title: "Remove Staff?", message: "This person won't be able to log in anymore.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteSeller(s.id); const updated = await db.getSellers(); setConfig({...config, sellers: updated}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Staff deleted", "info"); setIsGlobalLoading(false); } }); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-600 transition-all shadow-sm">
                                 <ICONS.Trash />
                               </button>
                            </div>
@@ -1077,20 +1195,25 @@ const App: React.FC = () => {
                          </div>
                          <div className="flex items-center gap-4 sm:gap-6">
                             <div className={`flex items-center gap-2.5 p-1 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-100'}`}>
-                               <button onClick={() => { const updated = cart.map(i => i.id === item.id ? { ...i, cartQuantity: Math.max(0, i.cartQuantity - 1) } : i).filter(i => i.cartQuantity > 0); updateBranchCart(updated); }} className="w-10 h-10 rounded-xl font-black text-lg">-</button>
-                               <span className="w-8 text-center font-black text-lg">{item.cartQuantity}</span>
-                               <button onClick={() => { const real = activeBranchProducts.find(p => p.id === item.id); if (real && item.cartQuantity < real.quantity) { const updated = cart.map(i => i.id === item.id ? { ...i, cartQuantity: i.cartQuantity + 1 } : i); updateBranchCart(updated); } else { showToast("No more in stock", "info"); } }} className="w-10 h-10 rounded-xl font-black text-lg">+</button>
+                               <button onClick={() => handleCartQuantityChange(item.id, (item.cartQuantity - 1).toString())} className="w-10 h-10 rounded-xl font-black text-lg">-</button>
+                               <input 
+                                 type="text" 
+                                 value={item.cartQuantity} 
+                                 onChange={(e) => handleCartQuantityChange(item.id, e.target.value)}
+                                 className="w-12 text-center font-black text-lg bg-transparent border-none outline-none focus:ring-0"
+                               />
+                               <button onClick={() => handleCartQuantityChange(item.id, (item.cartQuantity + 1).toString())} className="w-10 h-10 rounded-xl font-black text-lg">+</button>
                             </div>
                             <span className="font-black text-xl sm:text-2xl min-w-[100px] sm:min-w-[120px] text-right text-blue-600">₦{(item.price * item.cartQuantity).toLocaleString()}</span>
                             <button onClick={() => removeFromCart(item.id)} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl transition-all"><ICONS.Trash /></button>
                          </div>
                       </div>
                     ))}
-                    {cart.length === 0 && <div className="py-24 text-center text-slate-300 font-black uppercase text-xs italic">Basket is currently empty</div>}
+                    {cart.length === 0 && <div className="py-24 text-center text-slate-300 font-black uppercase text-xs italic">Your basket is empty</div>}
                  </div>
                  <div className={`p-8 sm:p-10 border-t flex flex-col sm:flex-row items-center justify-between shrink-0 gap-8 transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-                    <div className="text-center sm:text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Money to collect</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
-                    <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-12 sm:px-16 py-6 sm:py-8 bg-slate-900 dark:bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-xs sm:text-sm tracking-widest shadow-2xl active:scale-95 disabled:opacity-20 transition-all">Sell and print receipt</button>
+                    <div className="text-center sm:text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total to Pay</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
+                    <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-12 sm:px-16 py-6 sm:py-8 bg-slate-900 dark:bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-xs sm:text-sm tracking-widest shadow-2xl active:scale-95 disabled:opacity-20 transition-all">Finish & Print Receipt</button>
                  </div>
               </div>
            </div>
@@ -1102,7 +1225,7 @@ const App: React.FC = () => {
               <div className="text-center mb-8 border-b border-slate-100 pb-8 shrink-0">
                 <h3 className="text-2xl sm:text-3xl font-black uppercase tracking-tight italic leading-none">{config.supermarketName}</h3>
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-2">{activeBranch?.name}</p>
-                <div className="mt-4 space-y-1"><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Receipt #: {receiptToShow.id}</p><p className="text-[9px] font-black text-slate-400 uppercase italic">{new Date(receiptToShow.timestamp).toLocaleString()}</p></div>
+                <div className="mt-4 space-y-1"><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Receipt ID: {receiptToShow.id}</p><p className="text-[9px] font-black text-slate-400 uppercase italic">{new Date(receiptToShow.timestamp).toLocaleString()}</p></div>
               </div>
               <div className="space-y-4 mb-8 overflow-y-auto custom-scrollbar pr-2 flex-1 sm:flex-none">
                 {receiptToShow.items.map((item, idx) => (
@@ -1112,10 +1235,10 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Total Sum</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span></div>
+              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Grand Total</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span></div>
               <div className="flex flex-col gap-3 print:hidden shrink-0">
-                <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Print paper receipt</button>
-                <button onClick={() => setReceiptToShow(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Done / Close</button>
+                <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Print Paper Receipt</button>
+                <button onClick={() => setReceiptToShow(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Done</button>
               </div>
             </div>
           </div>
