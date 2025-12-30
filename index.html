@@ -6,7 +6,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>SuperMart Inventory Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
     <script>
       tailwind.config = {
         darkMode: 'class',
@@ -54,35 +53,11 @@
           animation: loading-bar 2s cubic-bezier(0.65, 0.05, 0.36, 1) infinite;
         }
 
-        @keyframes scanner-laser {
-          0% { top: 0%; opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { top: 100%; opacity: 0; }
-        }
-        .scanner-laser {
-          position: absolute;
-          left: 0;
-          width: 100%;
-          height: 2px;
-          background: #3b82f6;
-          box-shadow: 0 0 15px rgba(59, 130, 246, 0.8);
-          animation: scanner-laser 2s linear infinite;
-          z-index: 10;
-        }
-
         @media print {
           body, html { background-color: white !important; color: black !important; }
-          aside, header, main > div:not(.print-section), button, .fixed:not(.print-receipt-overlay), .print-hidden {
+          aside, header, main > div:not(.print-receipt-overlay), button, .fixed:not(.print-receipt-overlay) {
             display: none !important;
           }
-          
-          .print-section {
-            display: block !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-
           .print-receipt-overlay {
             position: absolute !important;
             top: 0 !important;
@@ -106,12 +81,6 @@
           .dark .print-receipt-card {
             background-color: white !important;
             color: black !important;
-          }
-
-          .barcodes-grid {
-             display: grid !important;
-             grid-template-columns: repeat(2, 1fr) !important;
-             gap: 10px !important;
           }
         }
     </style>
