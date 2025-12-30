@@ -1,7 +1,6 @@
-
 {
-  "name": "Copy of SuperMart Inventory Pro",
-  "description": "A comprehensive supermarket inventory management system featuring AI-powered insights, real-time stock tracking, and smart demand forecasting.",
+  "name": "SuperMart Inventory Pro",
+  "description": "A comprehensive supermarket inventory management system featuring industrial-grade QR scanning and real-time stock tracking.",
   "requestFramePermissions": [
     "camera"
   ]

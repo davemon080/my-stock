@@ -77,22 +77,22 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
         
         <div className="mb-8 sm:mb-10 pt-4 sm:pt-0">
           <h2 className="text-2xl sm:text-3xl font-black tracking-tight uppercase italic">
-            {initialData ? 'Update Item' : 'Add New Item'}
+            {initialData ? 'Update Item Info' : 'Add a New Product'}
           </h2>
-          <p className="mt-1 sm:mt-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase italic">Fill in the details below</p>
+          <p className="mt-1 sm:mt-2 text-[10px] font-bold tracking-widest text-slate-400 uppercase italic">Fill in the item details below</p>
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8 pb-10 sm:pb-0">
           <div className="space-y-4 sm:space-y-6">
             <div className="space-y-1 sm:space-y-2">
-              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">What is this called?</label>
+              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">What is the item called?</label>
               <input 
                 type="text" 
                 required
                 className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl focus:border-blue-600 outline-none font-bold transition-all text-sm"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
-                placeholder="e.g. Milk, Bread, Juice..."
+                placeholder="e.g. Peak Milk, Sliced Bread..."
               />
             </div>
 
@@ -110,7 +110,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 />
               </div>
               <div className="space-y-1 sm:space-y-2">
-                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Store Price (Selling price)</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Selling Price (Customer price)</label>
                 <input 
                   type="number" 
                   step="any"
@@ -136,7 +136,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                 />
               </div>
               <div className="space-y-1 sm:space-y-2">
-                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Warn me if less than...</label>
+                <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Low stock warning level</label>
                 <input 
                   type="number" 
                   required
@@ -149,7 +149,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
             </div>
 
             <div className="space-y-1 sm:space-y-2">
-              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category (e.g. food, drinks)</label>
+              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Categories (e.g. food, drinks)</label>
               <input 
                 type="text" 
                 className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl focus:border-blue-600 outline-none font-bold transition-all text-sm"
@@ -172,7 +172,7 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
               type="submit"
               className="flex-[2] py-4 sm:py-5 text-[10px] sm:text-sm font-black text-white uppercase tracking-widest bg-blue-600 shadow-xl shadow-blue-600/30 rounded-xl sm:rounded-3xl hover:bg-blue-700 transition-all active:scale-95"
             >
-              Save Item
+              Submit for Approval
             </button>
           </div>
         </form>
