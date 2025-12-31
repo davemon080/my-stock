@@ -24,7 +24,8 @@ interface OperationTask {
 }
 
 const App: React.FC = () => {
-  const [isInitializing, setIsInitializing] = useState(true);
+  // Application now starts as NOT initializing to show the UI immediately
+  const [isInitializing, setIsInitializing] = useState(false);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -156,8 +157,8 @@ const App: React.FC = () => {
     localStorage.setItem('supermart_carts', JSON.stringify(branchCarts));
   }, [branchCarts]);
 
+  // initApp is now purely background-oriented
   const initApp = async () => {
-    setIsInitializing(true);
     try {
       const [appConfig, branches, sellers] = await Promise.all([
         db.getConfig(),
@@ -175,13 +176,13 @@ const App: React.FC = () => {
         }
       }
     } catch (err) {
-      showToast("Could not load the store", "error");
-    } finally {
-      setTimeout(() => setIsInitializing(false), 800);
+      // Silently fail or background toast
+      console.warn("Background data sync failed");
     }
   };
 
   useEffect(() => {
+    // Run initial data fetch in background without blocking UI
     initApp();
   }, []);
 
@@ -272,7 +273,7 @@ const App: React.FC = () => {
     setLoginError('');
     setIsGlobalLoading(true);
     
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 1000));
 
     if (loginRole === 'Admin') {
       if (loginPassword === config.adminPassword) {
@@ -578,17 +579,6 @@ const App: React.FC = () => {
     showToast(`Email ${email} is real and ready!`, "success");
     setIsVerifyingEmail(false);
   };
-
-  if (isInitializing) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-center px-6">
-        <div className="h-1 w-48 bg-white/10 rounded-full overflow-hidden relative mb-6">
-          <div className="absolute inset-y-0 left-0 bg-blue-600 animate-loading-bar rounded-full"></div>
-        </div>
-        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest animate-pulse">Waking up the shop...</p>
-      </div>
-    );
-  }
 
   const LoadingOverlay = ({ message = "Just a second..." }: { message?: string }) => (
     <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
@@ -1221,7 +1211,7 @@ const App: React.FC = () => {
 
         {receiptToShow && (
           <div className="fixed inset-0 z-[140] flex items-center justify-center p-0 sm:p-4 bg-slate-950/90 backdrop-blur-xl print-receipt-overlay">
-            <div className="w-full max-w-sm h-full sm:h-auto bg-white rounded-none sm:rounded-[3rem] p-8 sm:p-10 shadow-2xl flex flex-col print-receipt-card relative overflow-y-auto text-slate-900">
+            <div className="w-full max-sm h-full sm:h-auto bg-white rounded-none sm:rounded-[3rem] p-8 sm:p-10 shadow-2xl flex flex-col print-receipt-card relative overflow-y-auto text-slate-900">
               <div className="text-center mb-8 border-b border-slate-100 pb-8 shrink-0">
                 <h3 className="text-2xl sm:text-3xl font-black uppercase tracking-tight italic leading-none">{config.supermarketName}</h3>
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-2">{activeBranch?.name}</p>

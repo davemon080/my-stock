@@ -17,11 +17,8 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
     costPrice: '' as string | number,
     quantity: '' as string | number,
     minThreshold: '' as string | number,
-    expiryDate: '',
-    tags: [] as string[]
+    expiryDate: ''
   });
-
-  const [tagsString, setTagsString] = useState('');
 
   useEffect(() => {
     if (initialData) {
@@ -31,10 +28,8 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
         costPrice: initialData.costPrice || 0,
         quantity: initialData.quantity,
         minThreshold: initialData.minThreshold,
-        expiryDate: initialData.expiryDate || '',
-        tags: initialData.tags || []
+        expiryDate: initialData.expiryDate || ''
       });
-      setTagsString((initialData.tags || []).join(', '));
     } else if (isOpen) {
       setFormData({
         name: '',
@@ -42,27 +37,20 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
         costPrice: '',
         quantity: '',
         minThreshold: 5, 
-        expiryDate: '',
-        tags: []
+        expiryDate: ''
       });
-      setTagsString('');
     }
   }, [initialData, isOpen]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const processedTags = tagsString
-      .split(',')
-      .map(t => t.trim())
-      .filter(t => t.length > 0);
     
     onSave({
       ...formData,
       price: Number(formData.price) || 0,
       costPrice: Number(formData.costPrice) || 0,
       quantity: Number(formData.quantity) || 0,
-      minThreshold: Number(formData.minThreshold) || 0,
-      tags: processedTags
+      minThreshold: Number(formData.minThreshold) || 0
     });
   };
 
@@ -146,17 +134,6 @@ const ProductModal: React.FC<ProductModalProps> = ({ isOpen, onClose, onSave, in
                   onChange={e => setFormData({...formData, minThreshold: e.target.value === '' ? '' : parseInt(e.target.value)})}
                 />
               </div>
-            </div>
-
-            <div className="space-y-1 sm:space-y-2">
-              <label className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category (e.g. food, drinks)</label>
-              <input 
-                type="text" 
-                className="w-full px-5 py-3.5 sm:px-6 sm:py-4 bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 rounded-xl sm:rounded-2xl focus:border-blue-600 outline-none font-bold transition-all text-sm"
-                value={tagsString}
-                onChange={e => setTagsString(e.target.value)}
-                placeholder="dairy, snacks, drinks..."
-              />
             </div>
           </div>
 
