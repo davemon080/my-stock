@@ -8,10 +8,11 @@ To initialize your Neon PostgreSQL database for all system features, execute the
 CREATE TABLE IF NOT EXISTS supermarket_config (
     id SERIAL PRIMARY KEY,
     name TEXT DEFAULT 'SUPERMART PRO',
-    logo_url TEXT
+    logo_url TEXT,
+    admin_register_passcode TEXT DEFAULT '1234'
 );
 
--- 2. Admin Accounts Table (New)
+-- 2. Admin Accounts Table
 CREATE TABLE IF NOT EXISTS admins (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -50,7 +51,7 @@ CREATE TABLE IF NOT EXISTS sellers (
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE
 );
 
--- 6. Transactions Table (Sales Ledger)
+-- 6. Transactions Table
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -82,7 +83,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 9. Approvals Table (Seller request queue)
+-- 9. Approvals Table
 CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -95,8 +96,8 @@ CREATE TABLE IF NOT EXISTS approvals (
 );
 
 -- Initial Data
-INSERT INTO supermarket_config (name, logo_url) 
-SELECT 'SUPERMART PRO', ''
+INSERT INTO supermarket_config (name, logo_url, admin_register_passcode) 
+SELECT 'SUPERMART PRO', '', '1234'
 WHERE NOT EXISTS (SELECT 1 FROM supermarket_config);
 
 INSERT INTO branches (id, name, location)

@@ -60,7 +60,8 @@ export interface Branch {
 export interface AppConfig {
   supermarketName: string;
   logoUrl: string;
-  adminPassword?: string; // Deprecated, but keeping for compatibility if needed
+  adminPassword?: string; // Deprecated
+  adminRegisterPasscode?: string;
   sellers: Seller[];
   branches: Branch[];
 }

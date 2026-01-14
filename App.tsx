@@ -35,15 +35,21 @@ const App: React.FC = () => {
 
   const [currentUser, setCurrentUser] = useState<{ role: UserRole; name: string; email: string; branchId: string; id: string } | null>(() => {
     const savedSession = localStorage.getItem('supermart_session');
-    return savedSession ? JSON.parse(savedSession) : null;
+    try {
+      return savedSession ? JSON.parse(savedSession) : null;
+    } catch {
+      return null;
+    }
   });
 
   const [loginRole, setLoginRole] = useState<UserRole>('Seller');
   const [isRegisteringAdmin, setIsRegisteringAdmin] = useState(false);
+  const [totalAdmins, setTotalAdmins] = useState(0);
   const [loginName, setLoginName] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [registerPasscode, setRegisterPasscode] = useState('');
   const [loginStep, setLoginStep] = useState<'credentials' | 'verification'>('credentials');
   const [verificationCode, setVerificationCode] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -61,6 +67,7 @@ const App: React.FC = () => {
   const [config, setConfig] = useState<AppConfig>({
     supermarketName: 'MY STORE',
     logoUrl: '',
+    adminRegisterPasscode: '1234',
     sellers: [],
     branches: []
   });
@@ -79,9 +86,10 @@ const App: React.FC = () => {
   const [isStaffEmailVerified, setIsStaffEmailVerified] = useState(false);
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
   
-  // New Settings States
   const [newAdminPassword, setNewAdminPassword] = useState('');
   const [showNewAdminPassword, setShowNewAdminPassword] = useState(false);
+  const [newRegisterPasscode, setNewRegisterPasscode] = useState('');
+  const [showNewRegisterPasscode, setShowNewRegisterPasscode] = useState(false);
   const [showStaffPinInSettings, setShowStaffPinInSettings] = useState(false);
 
   const [branchCarts, setBranchCarts] = useState<Record<string, CartItem[]>>(() => {
@@ -163,13 +171,15 @@ const App: React.FC = () => {
 
   const initApp = async () => {
     try {
-      const [appConfig, branches, sellers] = await Promise.all([
+      const [appConfig, branches, sellers, adminCount] = await Promise.all([
         db.getConfig(),
         db.getBranches(),
-        db.getSellers()
+        db.getSellers(),
+        db.getTotalAdminsCount()
       ]);
       const fullConfig = { ...config, ...appConfig, branches, sellers };
       setConfig(fullConfig as AppConfig);
+      setTotalAdmins(adminCount);
       
       if (!selectedBranchId) {
         if (currentUser?.branchId) {
@@ -274,6 +284,15 @@ const App: React.FC = () => {
     setLoginError('');
     setIsGlobalLoading(true);
     
+    // Refresh admin counts to be absolutely sure of system state
+    const [freshAdminCount, freshConfig] = await Promise.all([
+      db.getTotalAdminsCount(),
+      db.getConfig()
+    ]);
+    setTotalAdmins(freshAdminCount);
+    
+    const normalizedEmail = loginEmail.toLowerCase().trim();
+
     await new Promise(r => setTimeout(r, 1000));
 
     if (loginRole === 'Admin') {
@@ -283,12 +302,18 @@ const App: React.FC = () => {
           setIsGlobalLoading(false);
           return;
         }
-        if (!isValidEmailFormat(loginEmail)) {
+        if (!isValidEmailFormat(normalizedEmail)) {
           setLoginError('Invalid email format');
           setIsGlobalLoading(false);
           return;
         }
-        const existing = await db.getAdminByEmail(loginEmail);
+        // If admins already exist, require matching passcode from DB
+        if (freshAdminCount > 0 && registerPasscode !== freshConfig.adminRegisterPasscode) {
+          setLoginError('Incorrect Admin Register Passcode');
+          setIsGlobalLoading(false);
+          return;
+        }
+        const existing = await db.getAdminByEmail(normalizedEmail);
         if (existing) {
           setLoginError('Email already registered');
           setIsGlobalLoading(false);
@@ -298,16 +323,17 @@ const App: React.FC = () => {
         const newAdmin: Admin = {
           id: Math.random().toString(36).substr(2, 9),
           name: loginName,
-          email: loginEmail,
+          email: normalizedEmail,
           password: loginPassword,
           createdAt: new Date().toISOString()
         };
         await db.registerAdmin(newAdmin);
         showToast("Registration successful! Please log in.", "success");
         setIsRegisteringAdmin(false);
+        setTotalAdmins(prev => prev + 1);
         setIsGlobalLoading(false);
       } else {
-        const admin = await db.getAdminByEmail(loginEmail);
+        const admin = await db.getAdminByEmail(normalizedEmail);
         if (admin && admin.password === loginPassword) {
           const adminUser = { 
             role: 'Admin' as UserRole, 
@@ -326,22 +352,22 @@ const App: React.FC = () => {
       }
     } else {
       if (loginStep === 'credentials') {
-        if (!isValidEmailFormat(loginEmail)) {
-          setLoginError('That email looks wrong (example: me@gmail.com)');
+        if (!isValidEmailFormat(normalizedEmail)) {
+          setLoginError('Invalid email address');
           setIsGlobalLoading(false);
           return;
         }
-        const seller = config.sellers.find(s => s.email === loginEmail && s.password === loginPassword);
+        const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail && s.password === loginPassword);
         if (seller) {
           setLoginStep('verification');
-          showToast("We sent a code to your email (try 1234)", "info");
+          showToast("Sent a code to your email (try 1234)", "info");
         } else {
           setLoginError('Email or Pin is wrong');
         }
         setIsGlobalLoading(false);
       } else {
         if (verificationCode === '1234') {
-          const seller = config.sellers.find(s => s.email === loginEmail);
+          const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail);
           const staffUser = { 
             role: 'Seller' as UserRole, 
             name: seller!.name, 
@@ -661,6 +687,26 @@ const App: React.FC = () => {
     }
   };
 
+  const handleUpdateRegisterPasscode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRegisterPasscode || newRegisterPasscode.length < 4) {
+      showToast("Passcode too short!", "error");
+      return;
+    }
+    setIsGlobalLoading(true);
+    try {
+      await db.updateRegisterPasscode(newRegisterPasscode);
+      await new Promise(r => setTimeout(r, 1200));
+      showToast("Register passcode updated!", "success");
+      setConfig(prev => ({ ...prev, adminRegisterPasscode: newRegisterPasscode }));
+      setNewRegisterPasscode('');
+    } catch (err) {
+      showToast("Failed to update passcode", "error");
+    } finally {
+      setIsGlobalLoading(false);
+    }
+  };
+
   const LoadingOverlay = ({ message = "Just a second..." }: { message?: string }) => (
     <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
       <div className="w-16 h-16 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
@@ -671,9 +717,9 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
       <div className={`min-h-screen flex items-center justify-center p-6 transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'}`}>
-        {isGlobalLoading && <LoadingOverlay message={isRegisteringAdmin ? "Creating your account..." : "Checking credentials..."} />}
+        {isGlobalLoading && <LoadingOverlay message={isRegisteringAdmin ? "Processing account..." : "Checking credentials..."} />}
         <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl transition-all ${theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}>
-          <div className="text-center mb-10">
+          <div className="text-center mb-10 text-left">
             {config.logoUrl ? (
               <img src={config.logoUrl} className="w-20 h-20 mx-auto mb-6 rounded-2xl object-cover shadow-lg" alt="Logo" />
             ) : (
@@ -715,16 +761,29 @@ const App: React.FC = () => {
             </div>
 
             {loginRole === 'Admin' && isRegisteringAdmin && (
-              <div className="space-y-2 text-left">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirm Password</label>
-                <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
-              </div>
+              <>
+                <div className="space-y-2 text-left">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirm Password</label>
+                  <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+                </div>
+                {totalAdmins > 0 && (
+                   <div className="space-y-2 text-left animate-in slide-in-from-top duration-300">
+                     <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest ml-1 italic">Register Passcode Required</label>
+                     <input type="password" required className="w-full px-6 py-4 bg-rose-50 dark:bg-rose-900/10 dark:border-rose-900/30 border-2 border-rose-100 rounded-2xl focus:border-rose-600 outline-none font-bold" value={registerPasscode} onChange={e => setRegisterPasscode(e.target.value)} placeholder="Required for new admins" />
+                   </div>
+                )}
+                {totalAdmins === 0 && (
+                   <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
+                      <p className="text-[9px] font-bold text-blue-600 dark:text-blue-400 leading-relaxed text-left uppercase tracking-wider">You are the first admin. No passcode needed to create this account.</p>
+                   </div>
+                )}
+              </>
             )}
 
             {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
             
             <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95">
-              {loginRole === 'Admin' ? (isRegisteringAdmin ? 'Create Account' : 'Sign In') : 'Proceed'}
+              {loginRole === 'Admin' ? (isRegisteringAdmin ? 'Create Admin Account' : 'Sign In') : 'Proceed to Work'}
             </button>
 
             {loginRole === 'Admin' && (
@@ -760,7 +819,7 @@ const App: React.FC = () => {
          <div className="fixed inset-0 z-[120] flex justify-end">
             <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => { setIsNotificationsOpen(false); markAllRead(); }}></div>
             <div className={`relative w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-300 ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
-               <div className="p-8 border-b dark:border-slate-800 flex items-center justify-between shrink-0">
+               <div className="p-8 border-b dark:border-slate-800 flex items-center justify-between shrink-0 text-left">
                   <div className="min-w-0 pr-4">
                      <h3 className="text-xl font-black uppercase tracking-tight italic leading-none dark:text-white">Recent Activity</h3>
                      <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2">Logs for {currentUser.name}</p>
@@ -770,7 +829,7 @@ const App: React.FC = () => {
                <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                   {visibleNotifications.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-slate-300 opacity-20">
-                       <div className="scale-150 mb-6"><BellIcon /></div>
+                       <div className="scale-150 mb-6"><ICONS.Bell /></div>
                        <p className="text-[10px] font-black uppercase tracking-widest mt-4">Nothing happened yet</p>
                     </div>
                   ) : visibleNotifications.map(n => (
@@ -779,7 +838,7 @@ const App: React.FC = () => {
                          <span className={`text-[8px] font-black uppercase px-3 py-1 rounded-lg ${n.type === 'success' ? 'bg-emerald-100 text-emerald-600' : n.type === 'alert' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}>{n.type}</span>
                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{new Date(n.timestamp).toLocaleTimeString()}</span>
                        </div>
-                       <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-relaxed">{n.message}</p>
+                       <p className="text-xs font-bold text-slate-700 dark:text-slate-200 leading-relaxed text-left">{n.message}</p>
                     </div>
                   ))}
                </div>
@@ -794,8 +853,8 @@ const App: React.FC = () => {
       {isWipeModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md">
           <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 duration-200 ${theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-white' : 'bg-white text-slate-900'}`}>
-            <h3 className="text-xl font-black mb-4 uppercase tracking-tight">Pick a Store to Wipe</h3>
-            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed italic">Warning: This will delete every item and sale for this store forever.</p>
+            <h3 className="text-xl font-black mb-4 uppercase tracking-tight text-left">Pick a Store to Wipe</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed italic text-left">Warning: This will delete every item and sale for this store forever.</p>
             <div className="space-y-3 mb-10 overflow-y-auto max-h-[300px] custom-scrollbar pr-2">
               {config.branches.map(b => (
                 <button 
@@ -817,8 +876,8 @@ const App: React.FC = () => {
         <div className="fixed inset-0 z-[160] flex items-center justify-center p-6">
            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" onClick={() => setConfirmModal(null)}></div>
            <div className={`relative w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-200 ${theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-white' : 'bg-white text-slate-900'}`}>
-              <h3 className="text-xl font-black mb-4 uppercase tracking-tight">{confirmModal.title}</h3>
-              <p className="text-sm font-bold text-slate-500 mb-10 leading-relaxed">{confirmModal.message}</p>
+              <h3 className="text-xl font-black mb-4 uppercase tracking-tight text-left">{confirmModal.title}</h3>
+              <p className="text-sm font-bold text-slate-500 mb-10 leading-relaxed text-left">{confirmModal.message}</p>
               <div className="flex gap-4">
                  <button onClick={() => setConfirmModal(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest">Stop</button>
                  <button onClick={confirmModal.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest ${confirmModal.isDangerous ? 'bg-rose-600' : 'bg-blue-600'}`}>Yes, do it</button>
@@ -828,7 +887,7 @@ const App: React.FC = () => {
       )}
 
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-72 bg-slate-950 text-white flex flex-col transition-all duration-300 transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-        <div className="p-8 flex items-center justify-between border-b border-white/5 shrink-0">
+        <div className="p-8 flex items-center justify-between border-b border-white/5 shrink-0 text-left">
           <div className="flex items-center gap-4">
             {config.logoUrl ? (
               <img src={config.logoUrl} className="w-10 h-10 rounded-xl object-cover" alt="Logo" />
@@ -911,7 +970,6 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar pb-32">
           {activeTab === 'Settings' && currentUser.role === 'Admin' && (
             <div className="max-w-4xl mx-auto space-y-10 pb-40">
-               {/* Shop Info Section */}
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Logo & Name</h3>
                   <div className="space-y-8">
@@ -935,24 +993,37 @@ const App: React.FC = () => {
                   </div>
                </div>
 
-               {/* Admin Password Change Section */}
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Admin Security</h3>
-                  <form onSubmit={handleAdminPasswordChange} className="space-y-4 text-left">
-                     <div className="space-y-1">
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">New Admin Password</label>
-                        <div className="relative">
-                          <input type={showNewAdminPassword ? "text" : "password"} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Enter new password" />
-                          <button type="button" onClick={() => setShowNewAdminPassword(!showNewAdminPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                             {showNewAdminPassword ? <EyeOffIcon /> : <EyeIcon />}
-                          </button>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                     <form onSubmit={handleAdminPasswordChange} className="space-y-4 text-left">
+                        <div className="space-y-1">
+                           <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Change My Password</label>
+                           <div className="relative">
+                             <input type={showNewAdminPassword ? "text" : "password"} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Enter new password" />
+                             <button type="button" onClick={() => setShowNewAdminPassword(!showNewAdminPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                {showNewAdminPassword ? <EyeOffIcon /> : <EyeIcon />}
+                             </button>
+                           </div>
                         </div>
-                     </div>
-                     <button type="submit" className="w-full py-5 bg-slate-900 dark:bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Update My Password</button>
-                  </form>
+                        <button type="submit" className="w-full py-4 bg-slate-900 dark:bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Update My Password</button>
+                     </form>
+
+                     <form onSubmit={handleUpdateRegisterPasscode} className="space-y-4 text-left">
+                        <div className="space-y-1">
+                           <label className="text-[10px] font-black uppercase text-rose-500 ml-1">Admin Register Passcode</label>
+                           <div className="relative">
+                             <input type={showNewRegisterPasscode ? "text" : "password"} value={newRegisterPasscode} onChange={e => setNewRegisterPasscode(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-rose-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Register code for new admins" />
+                             <button type="button" onClick={() => setShowNewRegisterPasscode(!showNewRegisterPasscode)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                {showNewRegisterPasscode ? <EyeOffIcon /> : <EyeIcon />}
+                             </button>
+                           </div>
+                        </div>
+                        <button type="submit" className="w-full py-4 bg-rose-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Set Registration Code</button>
+                     </form>
+                  </div>
                </div>
 
-               {/* Store Branches Section */}
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Store Branches</h3>
                   <form onSubmit={async (e) => {
@@ -994,7 +1065,6 @@ const App: React.FC = () => {
                   </div>
                </div>
 
-               {/* Staff Members Section */}
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Staff Members</h3>
                   <form onSubmit={async (e) => {
@@ -1060,7 +1130,6 @@ const App: React.FC = () => {
                   </div>
                </div>
 
-               {/* Danger Zone Section */}
                <div className="bg-rose-50 dark:bg-rose-900/10 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 dark:border-rose-900/50 text-center">
                   <h3 className="text-2xl font-black uppercase text-rose-600 mb-2 italic">DANGER ZONE</h3>
                   <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">Wipe all stock and sales records for a store</p>
@@ -1116,7 +1185,7 @@ const App: React.FC = () => {
 
           {activeTab === 'Register' && (
             <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
-               <div className="relative max-w-2xl mx-auto w-full">
+               <div className="relative max-w-2xl mx-auto w-full text-left">
                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
                   <input type="text" placeholder="Search for items to sell..." className={`w-full pl-14 sm:pl-16 pr-6 sm:pr-8 py-4 sm:py-5 text-md font-bold border-2 border-transparent rounded-[2rem] sm:rounded-[2.5rem] outline-none shadow-sm transition-all focus:border-blue-600 ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                </div>
@@ -1141,7 +1210,7 @@ const App: React.FC = () => {
           {activeTab === 'Inventory' && (
              <div className="max-w-7xl mx-auto space-y-6">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                   <div className="relative flex-1 w-full max-w-md">
+                   <div className="relative flex-1 w-full max-w-md text-left">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
                       <input type="text" placeholder="Find an item..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                    </div>
@@ -1154,10 +1223,10 @@ const App: React.FC = () => {
                          {filteredProducts.map(p => (
                            <tr key={p.id} className="hover:bg-blue-50/5 transition-all">
                               <td className="px-10 py-6">
-                                <span className="font-black uppercase text-xs block text-slate-900 dark:text-white">{p.name}</span>
-                                <span className="text-[8px] font-bold text-slate-400 tracking-widest mt-1 block">SKU: {p.sku}</span>
+                                <span className="font-black uppercase text-xs block text-slate-900 dark:text-white text-left">{p.name}</span>
+                                <span className="text-[8px] font-bold text-slate-400 tracking-widest mt-1 block text-left">SKU: {p.sku}</span>
                               </td>
-                              <td className="px-10 py-6 font-black text-slate-900 dark:text-white">₦{p.price.toLocaleString()}</td>
+                              <td className="px-10 py-6 font-black text-slate-900 dark:text-white text-left">₦{p.price.toLocaleString()}</td>
                               <td className="px-10 py-6 text-center"><span className={`px-3 py-1 rounded-xl text-[9px] font-black ${p.quantity <= 0 ? 'bg-rose-100 text-rose-600' : p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>{p.quantity} Units</span></td>
                               <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2"><button onClick={() => { setEditingProduct(p); setIsModalOpen(true); }} className="p-2 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button><button onClick={() => deleteProduct(p.id)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button></div></td>
                            </tr>
@@ -1234,9 +1303,9 @@ const App: React.FC = () => {
                      <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800' : 'divide-slate-100'}`}>
                         {filteredTransactions.map(t => (
                           <tr key={t.id} className="hover:bg-slate-50/5 transition-all">
-                             <td className="px-10 py-6 font-black text-xs text-slate-900 dark:text-white">#{t.id}</td>
-                             <td className="px-10 py-6 text-xs text-slate-500 font-bold">{new Date(t.timestamp).toLocaleString()}</td>
-                             <td className="px-10 py-6 font-black text-blue-600">₦{t.total.toLocaleString()}</td>
+                             <td className="px-10 py-6 font-black text-xs text-slate-900 dark:text-white text-left">#{t.id}</td>
+                             <td className="px-10 py-6 text-xs text-slate-500 font-bold text-left">{new Date(t.timestamp).toLocaleString()}</td>
+                             <td className="px-10 py-6 font-black text-blue-600 text-left">₦{t.total.toLocaleString()}</td>
                              <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2"><button onClick={() => setReceiptToShow(t)} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-blue-600 hover:text-white transition-all"><EyeIcon /></button><button onClick={() => { setReceiptToShow(t); setTimeout(() => window.print(), 200); }} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-emerald-600 hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg></button></div></td>
                           </tr>
                         ))}
@@ -1258,7 +1327,7 @@ const App: React.FC = () => {
                 <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm text-left">
                   <div className="flex-1 w-full space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Filter by Date</label>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-2 gap-4 text-left">
                       <input type="date" value={revStartDate} onChange={e => setRevStartDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                       <input type="date" value={revEndDate} onChange={e => setRevEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                     </div>
@@ -1273,9 +1342,9 @@ const App: React.FC = () => {
                          <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-white' : 'divide-slate-100'}`}>
                             {filteredRevenueTransactions.map(t => (
                               <tr key={t.id} className="text-xs hover:bg-slate-50/5 transition-all">
-                                 <td className="px-8 py-6 font-bold text-slate-500">{new Date(t.timestamp).toLocaleDateString()} at {new Date(t.timestamp).toLocaleTimeString()}</td>
-                                 <td className="px-8 py-6 font-black text-slate-900 dark:text-white">₦{t.total.toLocaleString()}</td>
-                                 <td className="px-8 py-6 font-black text-emerald-600">₦{(t.total - t.totalCost).toLocaleString()}</td>
+                                 <td className="px-8 py-6 font-bold text-slate-500 text-left">{new Date(t.timestamp).toLocaleDateString()} at {new Date(t.timestamp).toLocaleTimeString()}</td>
+                                 <td className="px-8 py-6 font-black text-slate-900 dark:text-white text-left">₦{t.total.toLocaleString()}</td>
+                                 <td className="px-8 py-6 font-black text-emerald-600 text-left">₦{(t.total - t.totalCost).toLocaleString()}</td>
                                  <td className="px-8 py-6 text-right"><span className={`px-4 py-2 rounded-xl font-black uppercase text-[9px] ${theme === 'dark' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>{(((t.total - t.totalCost) / (t.total || 1)) * 100).toFixed(1)}% Margin</span></td>
                               </tr>
                             ))}
@@ -1290,14 +1359,14 @@ const App: React.FC = () => {
         {isBasketOpen && (
            <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-md">
               <div className={`w-full max-w-2xl h-full sm:h-[90vh] sm:rounded-[4rem] shadow-2xl flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
-                 <div className="p-8 sm:p-10 border-b dark:border-slate-800 flex items-center justify-between shrink-0">
+                 <div className="p-8 sm:p-10 border-b dark:border-slate-800 flex items-center justify-between shrink-0 text-left">
                     <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight italic leading-none dark:text-white">Shopping Basket</h3>
                     <button onClick={() => setIsBasketOpen(false)} className={`p-4 rounded-2xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                  </div>
                  <div className="flex-1 p-6 sm:p-10 overflow-y-auto custom-scrollbar space-y-4">
                     {cart.map(item => (
                       <div key={item.id} className={`p-6 sm:p-8 rounded-[3rem] flex flex-col sm:flex-row items-center justify-between border shadow-sm transition-colors gap-6 ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-                         <div className="flex-1 min-w-0 pr-4 text-center sm:text-left">
+                         <div className="flex-1 min-w-0 pr-4 text-center sm:text-left text-left">
                             <p className="text-lg sm:text-xl font-black uppercase truncate dark:text-white">{item.name}</p>
                             <p className="text-[10px] font-bold text-slate-400 tracking-widest mt-1 uppercase">Price: ₦{item.price.toLocaleString()}</p>
                          </div>
@@ -1319,7 +1388,7 @@ const App: React.FC = () => {
                     ))}
                  </div>
                  <div className={`p-8 sm:p-10 border-t flex flex-col sm:flex-row items-center justify-between shrink-0 gap-8 transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-                    <div className="text-center sm:text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total to Pay</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
+                    <div className="text-center sm:text-left text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total to Pay</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
                     <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-12 sm:px-16 py-6 sm:py-8 bg-slate-900 dark:bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-xs sm:text-sm tracking-widest shadow-2xl active:scale-95 disabled:opacity-20 transition-all">Finish & Print Receipt</button>
                  </div>
               </div>
@@ -1337,8 +1406,8 @@ const App: React.FC = () => {
               <div className="space-y-4 mb-8 overflow-y-auto custom-scrollbar pr-2 flex-1 sm:flex-none">
                 {receiptToShow.items.map((item, idx) => (
                   <div key={idx} className="flex flex-col text-[10px] font-bold text-slate-700">
-                    <div className="flex justify-between items-start"><span className="uppercase leading-tight pr-4">{item.name}</span><span className="font-black text-slate-900 shrink-0">₦{(item.price * item.quantity).toLocaleString()}</span></div>
-                    <p className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-widest">{item.quantity} pieces @ ₦{item.price.toLocaleString()}</p>
+                    <div className="flex justify-between items-start text-left"><span className="uppercase leading-tight pr-4">{item.name}</span><span className="font-black text-slate-900 shrink-0">₦{(item.price * item.quantity).toLocaleString()}</span></div>
+                    <p className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-widest text-left">{item.quantity} pieces @ ₦{item.price.toLocaleString()}</p>
                   </div>
                 ))}
               </div>

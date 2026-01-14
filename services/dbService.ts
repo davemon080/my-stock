@@ -10,17 +10,22 @@ export const db = {
   async getConfig(): Promise<Partial<AppConfig>> {
     const result = await sql`SELECT * FROM supermarket_config LIMIT 1`;
     if (result.length === 0) {
-      await sql`INSERT INTO supermarket_config (name, logo_url) VALUES ('MY STORE', '')`;
-      return { supermarketName: 'MY STORE', logoUrl: '' };
+      await sql`INSERT INTO supermarket_config (name, logo_url, admin_register_passcode) VALUES ('MY STORE', '', '1234')`;
+      return { supermarketName: 'MY STORE', logoUrl: '', adminRegisterPasscode: '1234' };
     }
     return {
       supermarketName: result[0].name,
-      logoUrl: result[0].logo_url
+      logoUrl: result[0].logo_url,
+      adminRegisterPasscode: result[0].admin_register_passcode
     };
   },
 
   async updateConfig(name: string, logo: string) {
     return sql`UPDATE supermarket_config SET name = ${name}, logo_url = ${logo}`;
+  },
+
+  async updateRegisterPasscode(passcode: string) {
+    return sql`UPDATE supermarket_config SET admin_register_passcode = ${passcode}`;
   },
 
   // Admin Management
