@@ -156,6 +156,19 @@ export const db = {
     }));
   },
 
+  async getSellerByEmail(email: string): Promise<Seller | null> {
+    const rows = await sql`SELECT * FROM sellers WHERE email = ${email} LIMIT 1`;
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      email: r.email,
+      password: r.password,
+      name: r.name,
+      branchId: r.branch_id
+    };
+  },
+
   async addSeller(seller: Seller) {
     return sql`INSERT INTO sellers (id, email, password, name, branch_id) VALUES (${seller.id}, ${seller.email}, ${seller.password}, ${seller.name}, ${seller.branchId})`;
   },
