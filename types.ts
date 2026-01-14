@@ -86,3 +86,11 @@ export interface ApprovalRequest {
   timestamp: string;
   status: 'PENDING' | 'APPROVED' | 'DECLINED';
 }
+
+// Added Message interface for chat functionality
+export interface Message {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+  timestamp: string;
+}

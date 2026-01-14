@@ -24,8 +24,6 @@ interface OperationTask {
 }
 
 const App: React.FC = () => {
-  // Application now starts as NOT initializing to show the UI immediately
-  const [isInitializing, setIsInitializing] = useState(false);
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
   const [isSwitchingBranch, setIsSwitchingBranch] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -77,6 +75,7 @@ const App: React.FC = () => {
   const [editingSeller, setEditingSeller] = useState<Seller | null>(null);
   const [isStaffEmailVerified, setIsStaffEmailVerified] = useState(false);
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
 
   const [branchCarts, setBranchCarts] = useState<Record<string, CartItem[]>>(() => {
     const saved = localStorage.getItem('supermart_carts');
@@ -106,9 +105,7 @@ const App: React.FC = () => {
 
   const isValidEmailFormat = (email: string) => {
     const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!re.test(email)) return false;
-    const parts = email.split('@');
-    return parts.length === 2 && parts[1].includes('.');
+    return re.test(email);
   };
 
   const addNotification = async (message: string, type: 'info' | 'alert' | 'success' = 'info') => {
@@ -157,7 +154,6 @@ const App: React.FC = () => {
     localStorage.setItem('supermart_carts', JSON.stringify(branchCarts));
   }, [branchCarts]);
 
-  // initApp is now purely background-oriented
   const initApp = async () => {
     try {
       const [appConfig, branches, sellers] = await Promise.all([
@@ -166,7 +162,7 @@ const App: React.FC = () => {
         db.getSellers()
       ]);
       const fullConfig = { ...config, ...appConfig, branches, sellers };
-      setConfig(fullConfig);
+      setConfig(fullConfig as AppConfig);
       
       if (!selectedBranchId) {
         if (currentUser?.branchId) {
@@ -176,13 +172,11 @@ const App: React.FC = () => {
         }
       }
     } catch (err) {
-      // Silently fail or background toast
       console.warn("Background data sync failed");
     }
   };
 
   useEffect(() => {
-    // Run initial data fetch in background without blocking UI
     initApp();
   }, []);
 
@@ -404,6 +398,23 @@ const App: React.FC = () => {
   };
 
   const handleSaveProduct = async (data: Omit<Product, 'id' | 'lastUpdated' | 'sku'>) => {
+    if (!editingProduct) {
+      const existing = activeBranchProducts.find(p => p.name.toLowerCase().trim() === data.name.toLowerCase().trim());
+      if (existing) {
+        setConfirmModal({
+          isOpen: true,
+          title: "Product Found",
+          message: `"${data.name}" is already in your inventory (SKU: ${existing.sku}). Do you want to edit the existing item instead?`,
+          onConfirm: () => {
+            setEditingProduct(existing);
+            setConfirmModal(null);
+            showToast("Switched to editing mode", "info");
+          }
+        });
+        return;
+      }
+    }
+
     setIsGlobalLoading(true);
     await new Promise(r => setTimeout(r, 1500));
     const isEditing = !!editingProduct;
@@ -618,7 +629,7 @@ const App: React.FC = () => {
                     <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} />
                   </div>
                 )}
-                <div className="space-y-2">
+                <div className="space-y-2 text-left">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{loginRole === 'Admin' ? 'Admin Password' : 'Staff Pin'}</label>
                   <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
                 </div>
@@ -777,7 +788,7 @@ const App: React.FC = () => {
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         <header className={`h-24 px-4 sm:px-10 flex items-center justify-between sticky top-0 z-30 shrink-0 border-b transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-          <div className="flex items-center gap-2 sm:gap-4 overflow-hidden">
+          <div className="flex items-center gap-2 sm:gap-4 overflow-hidden text-left">
             <button onClick={() => setIsSidebarOpen(true)} className={`lg:hidden p-2.5 rounded-xl transition-all shrink-0 ${theme === 'dark' ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
@@ -797,7 +808,7 @@ const App: React.FC = () => {
             )}
 
             <button onClick={() => { setIsNotificationsOpen(true); }} className={`relative p-2 sm:p-2.5 rounded-xl transition-all shrink-0 ${theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-500'}`}>
-              <ICONS.Bell />
+              <BellIcon />
               {unreadNotificationsCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[8px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white dark:border-slate-900 animate-pulse">{unreadNotificationsCount}</span>
               )}
@@ -817,6 +828,154 @@ const App: React.FC = () => {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar pb-32">
+          {activeTab === 'Settings' && currentUser.role === 'Admin' && (
+            <div className="max-w-4xl mx-auto space-y-10 pb-40">
+               {/* Shop Info Section */}
+               <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Logo & Name</h3>
+                  <div className="space-y-8">
+                    <div className={`flex flex-col sm:flex-row items-center gap-6 p-6 rounded-[2.5rem] border-2 border-dashed ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="w-24 h-24 bg-slate-200 rounded-[2rem] flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                        {config.logoUrl ? <img src={config.logoUrl} className="w-full h-full object-cover" alt="Logo" /> : <ICONS.Inventory />}
+                      </div>
+                      <div className="flex-1 text-center sm:text-left">
+                         <h4 className="text-xs font-black uppercase mb-4 tracking-widest text-slate-500">Store Logo</h4>
+                         <button onClick={() => fileInputRef.current?.click()} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${theme === 'dark' ? 'bg-slate-700 text-white' : 'bg-white border shadow-sm'}`}>Update Logo</button>
+                         <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept="image/*" className="hidden" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+                       <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Store Name</label>
+                          <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Store Name" />
+                       </div>
+                       <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Admin Password</label>
+                          <div className="relative">
+                            <input type={showAdminPassword ? "text" : "password"} value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Admin Password" />
+                            <button type="button" onClick={() => setShowAdminPassword(!showAdminPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                               {showAdminPassword ? <EyeOffIcon /> : <EyeIcon />}
+                            </button>
+                          </div>
+                       </div>
+                       <button onClick={async () => { setIsGlobalLoading(true); await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword); await new Promise(r => setTimeout(r, 1200)); showToast("Settings saved!", "success"); setIsGlobalLoading(false); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all mt-4">Save All</button>
+                    </div>
+                  </div>
+               </div>
+
+               {/* Store Branches Section */}
+               <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Store Branches</h3>
+                  <form onSubmit={async (e) => {
+                    e.preventDefault();
+                    const form = e.target as HTMLFormElement;
+                    const fd = new FormData(form);
+                    setIsGlobalLoading(true);
+                    await new Promise(r => setTimeout(r, 1200));
+                    if (editingBranch) {
+                      await db.updateBranch(editingBranch.id, fd.get('branchName') as string, fd.get('branchLoc') as string);
+                      setEditingBranch(null);
+                      showToast("Branch updated", "success");
+                    } else {
+                      const branch = { id: 'br_' + Math.random().toString(36).substr(2, 5), name: fd.get('branchName') as string, location: fd.get('branchLoc') as string, createdAt: new Date().toISOString() };
+                      await db.addBranch(branch);
+                      showToast("New branch added!", "success");
+                    }
+                    const branches = await db.getBranches();
+                    setConfig({ ...config, branches });
+                    form.reset();
+                    setIsGlobalLoading(false);
+                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 text-left">
+                    <input name="branchName" required defaultValue={editingBranch?.name || ''} placeholder="Branch Name" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <input name="branchLoc" required defaultValue={editingBranch?.location || ''} placeholder="Address" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">{editingBranch ? 'Update Branch' : 'Add New Store'}</button>
+                  </form>
+                  <div className="space-y-4">
+                    {config.branches.map(b => (
+                      <div key={b.id} className={`p-6 rounded-[2rem] border flex items-center justify-between ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
+                        <div className="text-left"><p className="font-black uppercase text-xs">{b.name}</p><p className="text-[9px] text-slate-400 font-bold uppercase">{b.location}</p></div>
+                        <div className="flex gap-2">
+                           <button onClick={() => setEditingBranch(b)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
+                           {config.branches.length > 1 && (
+                             <button onClick={() => { setConfirmModal({ isOpen: true, title: "Delete Store?", message: "This will remove all stock info for this store.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteBranch(b.id); const brs = await db.getBranches(); setConfig({...config, branches: brs}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Branch removed", "info"); setIsGlobalLoading(false); } }); }} className="p-3 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button>
+                           )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+               </div>
+
+               {/* Staff Members Section */}
+               <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Staff Members</h3>
+                  <form onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!isStaffEmailVerified) {
+                      showToast("Check the email first!", "error");
+                      return;
+                    }
+                    const form = e.target as HTMLFormElement;
+                    const fd = new FormData(form);
+                    setIsGlobalLoading(true);
+                    await new Promise(r => setTimeout(r, 1200));
+                    if (editingSeller) await db.deleteSeller(editingSeller.id);
+                    const seller = { id: editingSeller?.id || Math.random().toString(36).substr(2, 9), name: fd.get('staffName') as string, email: fd.get('staffEmail') as string, password: fd.get('staffPin') as string, branchId: fd.get('staffBranch') as string };
+                    await db.addSeller(seller);
+                    setEditingSeller(null);
+                    setIsStaffEmailVerified(false);
+                    showToast("Staff saved!", "success");
+                    const sellers = await db.getSellers();
+                    setConfig({ ...config, sellers });
+                    form.reset();
+                    setIsGlobalLoading(false);
+                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10 text-left">
+                    <input name="staffName" required defaultValue={editingSeller?.name || ''} placeholder="Staff Full Name" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <div className="relative group">
+                      <input name="staffEmail" required defaultValue={editingSeller?.email || ''} type="email" placeholder="Email Address" className={`w-full px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'} ${isStaffEmailVerified ? 'border-emerald-500' : ''}`} onChange={() => { setIsStaffEmailVerified(false); }} />
+                      <button type="button" onClick={(e) => { const el = (e.currentTarget.previousSibling as HTMLInputElement); handleVerifyStaffEmail(el.value); }} className={`absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${isStaffEmailVerified ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'}`}>
+                        {isStaffEmailVerified ? 'Verified' : 'Verify Email'}
+                      </button>
+                    </div>
+                    <input name="staffPin" required defaultValue={editingSeller?.password || ''} placeholder="Login Pin" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <select name="staffBranch" required defaultValue={editingSeller?.branchId || config.branches[0]?.id} className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`}>
+                       {config.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                    <button type="submit" disabled={!isStaffEmailVerified} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{editingSeller ? 'Save Staff Update' : 'Register New Staff'}</button>
+                    {editingSeller && <button type="button" onClick={() => { setEditingSeller(null); setIsStaffEmailVerified(false); }} className="sm:col-span-2 text-[10px] font-black uppercase text-slate-500 py-2">Stop Editing</button>}
+                  </form>
+
+                  <div className="space-y-4">
+                     {config.sellers.map(s => (
+                        <div key={s.id} className={`p-6 rounded-[2rem] border flex flex-col sm:flex-row items-center sm:justify-between gap-6 text-center sm:text-left transition-all ${theme === 'dark' ? 'bg-slate-800 border-slate-700 hover:bg-slate-700/50' : 'bg-slate-50 border-slate-100 hover:bg-white'}`}>
+                           <div className="min-w-0 flex-1 text-left">
+                              <p className="font-black uppercase text-xs truncate">{s.name}</p>
+                              <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
+                                Store: {config.branches.find(b => b.id === s.branchId)?.name || 'N/A'} • {s.email}
+                              </p>
+                           </div>
+                           <div className="flex items-center gap-3 shrink-0">
+                              <button onClick={() => { setEditingSeller(s); setIsStaffEmailVerified(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-600 transition-all shadow-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                              </button>
+                              <button onClick={() => { setConfirmModal({ isOpen: true, title: "Remove Staff?", message: "This person won't be able to log in anymore.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteSeller(s.id); const updated = await db.getSellers(); setConfig({...config, sellers: updated}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Staff deleted", "info"); setIsGlobalLoading(false); } }); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-600 transition-all shadow-sm">
+                                <ICONS.Trash />
+                              </button>
+                           </div>
+                        </div>
+                     ))}
+                  </div>
+               </div>
+
+               {/* Danger Zone Section */}
+               <div className="bg-rose-50 dark:bg-rose-900/10 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 dark:border-rose-900/50 text-center">
+                  <h3 className="text-2xl font-black uppercase text-rose-600 mb-2 italic">DANGER ZONE</h3>
+                  <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">Wipe all stock and sales records for a store</p>
+                  <button onClick={() => setIsWipeModalOpen(true)} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Master Reset a branch</button>
+               </div>
+            </div>
+          )}
+
+          {/* Rest of the Tabs (Dashboard, Inventory, etc.) */}
           {activeTab === 'Dashboard' && (
             <div className="space-y-6 sm:space-y-10 max-w-7xl mx-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
@@ -828,7 +987,7 @@ const App: React.FC = () => {
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                  <div className={`lg:col-span-1 rounded-[3rem] p-6 sm:p-8 border shadow-sm flex flex-col min-h-[300px] sm:min-h-[400px] transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 italic">Items Finishing</h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 italic text-left">Items Finishing</h3>
                     <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar pr-2">
                        {lowStockItems.length > 0 ? lowStockItems.map(item => (
                          <div key={item.id}>
@@ -846,8 +1005,8 @@ const App: React.FC = () => {
 
                  <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-6 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col min-h-[300px] sm:min-h-[400px]">
                     <div className="relative z-10 h-full flex flex-col">
-                       <h3 className="text-lg font-black text-white uppercase tracking-tight mb-8 italic">To-Do List</h3>
-                       <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 text-slate-200">
+                       <h3 className="text-lg font-black text-white uppercase tracking-tight mb-8 italic text-left">To-Do List</h3>
+                       <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 text-slate-200 text-left">
                           {operationTasks.map(task => (
                             <div key={task.id} className={`p-6 rounded-3xl border ${task.type === 'critical' ? 'bg-rose-500/10 border-rose-500/20 text-rose-100' : 'bg-blue-500/10 border-blue-500/20 text-blue-100'}`}>
                                <h4 className={`text-[10px] font-black uppercase tracking-widest mb-2 ${task.type === 'critical' ? 'text-rose-400' : 'text-blue-400'}`}>{task.title}</h4>
@@ -918,22 +1077,22 @@ const App: React.FC = () => {
 
           {activeTab === 'Approvals' && currentUser.role === 'Admin' && (
             <div className="max-w-7xl mx-auto space-y-6">
-              <h3 className="text-xl font-black uppercase italic tracking-tighter dark:text-white">Staff Requests</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4">Boss, check these updates from your staff</p>
+              <h3 className="text-xl font-black uppercase italic tracking-tighter dark:text-white text-left">Staff Requests</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4 text-left">Boss, check these updates from your staff</p>
               {pendingApprovals.length === 0 ? (
                 <div className="py-24 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[3rem] text-slate-300 font-black uppercase text-xs">No requests right now</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {pendingApprovals.map(req => (
                     <div key={req.id} className={`p-8 rounded-[3rem] border transition-all ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-                      <div className="flex justify-between items-start mb-6">
+                      <div className="flex justify-between items-start mb-6 text-left">
                         <div>
                           <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${req.actionType === 'ADD' ? 'bg-emerald-100 text-emerald-600' : req.actionType === 'EDIT' ? 'bg-blue-100 text-blue-600' : 'bg-rose-100 text-rose-600'}`}>{req.actionType} ITEM</span>
                           <h4 className="text-lg font-black uppercase mt-2">{req.productData.name || 'Something'}</h4>
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">From {req.requestedBy} • {new Date(req.timestamp).toLocaleTimeString()}</p>
                         </div>
                       </div>
-                      <div className={`p-6 rounded-3xl mb-6 text-xs space-y-3 ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                      <div className={`p-6 rounded-3xl mb-6 text-xs space-y-3 text-left ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-50'}`}>
                         {req.actionType !== 'DELETE' && (
                           <>
                             <div className="flex justify-between"><span className="text-slate-400">Price:</span><span className="font-black text-blue-600">₦{req.productData.price?.toLocaleString()}</span></div>
@@ -955,7 +1114,7 @@ const App: React.FC = () => {
 
           {activeTab === 'Transactions' && (
             <div className="max-w-7xl mx-auto space-y-6">
-               <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm">
+               <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm text-left">
                   <div className="flex-1 w-full space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Search Receipts</label>
                     <div className="relative">
@@ -978,7 +1137,7 @@ const App: React.FC = () => {
 
                <div className={`rounded-[3rem] border overflow-hidden shadow-sm overflow-x-auto ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <table className="w-full text-left min-w-[700px]">
-                     <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Receipt #</th><th className="px-10 py-6">Time</th><th className="px-10 py-6">Total Amount</th><th className="px-10 py-6 text-right">View</th></tr></thead>
+                     <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Receipt #</th><th className="px-10 py-6">Time</th><th className="px-10 py-6">Total Amount</th><th className="px-10 py-6 text-right">Actions</th></tr></thead>
                      <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800' : 'divide-slate-100'}`}>
                         {filteredTransactions.map(t => (
                           <tr key={t.id} className="hover:bg-slate-50/5 transition-all">
@@ -1003,7 +1162,7 @@ const App: React.FC = () => {
                    <StatCard title="Profit Percent" value={`${((filteredRevenueTransactions.reduce((acc, t) => acc + (t.total - t.totalCost), 0) / (filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) || 1)) * 100).toFixed(1)}%`} icon={<ICONS.Register />} color="slate" theme={theme} />
                 </div>
 
-                <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm">
+                <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm text-left">
                   <div className="flex-1 w-full space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Filter by Date</label>
                     <div className="grid grid-cols-2 gap-4">
@@ -1011,13 +1170,10 @@ const App: React.FC = () => {
                       <input type="date" value={revEndDate} onChange={e => setRevEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                     </div>
                   </div>
-                  {(revStartDate || revEndDate) && (
-                    <button onClick={() => { setRevStartDate(''); setRevEndDate(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all font-black uppercase text-[10px]">Clear Filter</button>
-                  )}
                 </div>
 
                 <div className={`rounded-[3rem] p-8 sm:p-10 border shadow-sm overflow-hidden ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                   <h3 className="text-xl font-black uppercase mb-8 italic tracking-tighter dark:text-white">Profit Log</h3>
+                   <h3 className="text-xl font-black uppercase mb-8 italic tracking-tighter dark:text-white text-left">Profit Log</h3>
                    <div className="overflow-x-auto">
                       <table className="w-full text-left min-w-[700px]">
                          <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-8 py-6">Date & Time</th><th className="px-8 py-6">Total Sale</th><th className="px-8 py-6">Profit</th><th className="px-8 py-6 text-right">Result</th></tr></thead>
@@ -1035,137 +1191,6 @@ const App: React.FC = () => {
                    </div>
                 </div>
              </div>
-          )}
-
-          {activeTab === 'Settings' && currentUser.role === 'Admin' && (
-            <div className="max-w-4xl mx-auto space-y-10 pb-40">
-               <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Logo & Name</h3>
-                  <div className="space-y-8">
-                    <div className={`flex flex-col sm:flex-row items-center gap-6 p-6 rounded-[2.5rem] border-2 border-dashed ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                      <div className="w-24 h-24 bg-slate-200 rounded-[2rem] flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
-                        {config.logoUrl ? <img src={config.logoUrl} className="w-full h-full object-cover" alt="Logo" /> : <ICONS.Inventory />}
-                      </div>
-                      <div className="flex-1 text-center sm:text-left">
-                         <h4 className="text-xs font-black uppercase mb-4 tracking-widest text-slate-500">Store Logo</h4>
-                         <button onClick={() => fileInputRef.current?.click()} className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${theme === 'dark' ? 'bg-slate-700 text-white' : 'bg-white border shadow-sm'}`}>Update Logo</button>
-                         <input type="file" ref={fileInputRef} onChange={handleLogoUpload} accept="image/*" className="hidden" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                       <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className={`px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Store Name" />
-                       <input type="password" value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className={`px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Admin Password" />
-                       <button onClick={async () => { setIsGlobalLoading(true); await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword); await new Promise(r => setTimeout(r, 1200)); showToast("Settings saved!", "success"); setIsGlobalLoading(false); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Save All</button>
-                    </div>
-                  </div>
-               </div>
-
-               <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Store Branches</h3>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const form = e.target as HTMLFormElement;
-                    const fd = new FormData(form);
-                    setIsGlobalLoading(true);
-                    await new Promise(r => setTimeout(r, 1200));
-                    if (editingBranch) {
-                      await db.updateBranch(editingBranch.id, fd.get('branchName') as string, fd.get('branchLoc') as string);
-                      setEditingBranch(null);
-                      showToast("Branch updated", "success");
-                    } else {
-                      const branch = { id: 'br_' + Math.random().toString(36).substr(2, 5), name: fd.get('branchName') as string, location: fd.get('branchLoc') as string, createdAt: new Date().toISOString() };
-                      await db.addBranch(branch);
-                      showToast("New branch added!", "success");
-                    }
-                    const branches = await db.getBranches();
-                    setConfig({ ...config, branches });
-                    form.reset();
-                    setIsGlobalLoading(false);
-                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                    <input name="branchName" required defaultValue={editingBranch?.name || ''} placeholder="Branch Name" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <input name="branchLoc" required defaultValue={editingBranch?.location || ''} placeholder="Address" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">{editingBranch ? 'Update Branch' : 'Add New Store'}</button>
-                  </form>
-                  <div className="space-y-4">
-                    {config.branches.map(b => (
-                      <div key={b.id} className={`p-6 rounded-[2rem] border flex items-center justify-between ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-                        <div><p className="font-black uppercase text-xs">{b.name}</p><p className="text-[9px] text-slate-400 font-bold uppercase">{b.location}</p></div>
-                        <div className="flex gap-2">
-                           <button onClick={() => setEditingBranch(b)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
-                           {config.branches.length > 1 && (
-                             <button onClick={() => { setConfirmModal({ isOpen: true, title: "Delete Store?", message: "This will remove all stock info for this store.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteBranch(b.id); const brs = await db.getBranches(); setConfig({...config, branches: brs}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Branch removed", "info"); setIsGlobalLoading(false); } }); }} className="p-3 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button>
-                           )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-               </div>
-
-               <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Staff Members</h3>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!isStaffEmailVerified) {
-                      showToast("Check the email first!", "error");
-                      return;
-                    }
-                    const form = e.target as HTMLFormElement;
-                    const fd = new FormData(form);
-                    setIsGlobalLoading(true);
-                    await new Promise(r => setTimeout(r, 1200));
-                    if (editingSeller) await db.deleteSeller(editingSeller.id);
-                    const seller = { id: editingSeller?.id || Math.random().toString(36).substr(2, 9), name: fd.get('staffName') as string, email: fd.get('staffEmail') as string, password: fd.get('staffPin') as string, branchId: fd.get('staffBranch') as string };
-                    await db.addSeller(seller);
-                    setEditingSeller(null);
-                    setIsStaffEmailVerified(false);
-                    showToast("Staff saved!", "success");
-                    const sellers = await db.getSellers();
-                    setConfig({ ...config, sellers });
-                    form.reset();
-                    setIsGlobalLoading(false);
-                  }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
-                    <input name="staffName" required defaultValue={editingSeller?.name || ''} placeholder="Staff Full Name" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <div className="relative group">
-                      <input name="staffEmail" required defaultValue={editingSeller?.email || ''} type="email" placeholder="Email Address" className={`w-full px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'} ${isStaffEmailVerified ? 'border-emerald-500' : ''}`} onChange={(e) => { setIsStaffEmailVerified(false); }} />
-                      <button type="button" onClick={(e) => { const el = (e.currentTarget.previousSibling as HTMLInputElement); handleVerifyStaffEmail(el.value); }} className={`absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${isStaffEmailVerified ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'}`}>
-                        {isStaffEmailVerified ? 'Verified' : 'Verify Email'}
-                      </button>
-                    </div>
-                    <input name="staffPin" required defaultValue={editingSeller?.password || ''} placeholder="Login Pin" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <select name="staffBranch" required defaultValue={editingSeller?.branchId || config.branches[0]?.id} className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`}>
-                       {config.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
-                    <button type="submit" disabled={!isStaffEmailVerified} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{editingSeller ? 'Save Staff Update' : 'Register New Staff'}</button>
-                    {editingSeller && <button type="button" onClick={() => { setEditingSeller(null); setIsStaffEmailVerified(false); }} className="sm:col-span-2 text-[10px] font-black uppercase text-slate-500 py-2">Stop Editing</button>}
-                  </form>
-
-                  <div className="space-y-4">
-                     {config.sellers.map(s => (
-                        <div key={s.id} className={`p-6 rounded-[2rem] border flex flex-col sm:flex-row items-center sm:justify-between gap-6 text-center sm:text-left transition-all ${theme === 'dark' ? 'bg-slate-800 border-slate-700 hover:bg-slate-700/50' : 'bg-slate-50 border-slate-100 hover:bg-white'}`}>
-                           <div className="min-w-0 flex-1">
-                              <p className="font-black uppercase text-xs truncate">{s.name}</p>
-                              <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">
-                                Store: {config.branches.find(b => b.id === s.branchId)?.name || 'N/A'} • {s.email}
-                              </p>
-                           </div>
-                           <div className="flex items-center gap-3 shrink-0">
-                              <button onClick={() => { setEditingSeller(s); setIsStaffEmailVerified(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-600 transition-all shadow-sm">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                              </button>
-                              <button onClick={() => { setConfirmModal({ isOpen: true, title: "Remove Staff?", message: "This person won't be able to log in anymore.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteSeller(s.id); const updated = await db.getSellers(); setConfig({...config, sellers: updated}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Staff deleted", "info"); setIsGlobalLoading(false); } }); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-600 transition-all shadow-sm">
-                                <ICONS.Trash />
-                              </button>
-                           </div>
-                        </div>
-                     ))}
-                  </div>
-               </div>
-
-               <div className="bg-rose-50 dark:bg-rose-900/10 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 dark:border-rose-900/50 text-center">
-                  <h3 className="text-2xl font-black uppercase text-rose-600 mb-2 italic">DANGER ZONE</h3>
-                  <button onClick={() => setIsWipeModalOpen(true)} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Master Reset a branch</button>
-               </div>
-            </div>
           )}
         </div>
 
@@ -1199,7 +1224,6 @@ const App: React.FC = () => {
                          </div>
                       </div>
                     ))}
-                    {cart.length === 0 && <div className="py-24 text-center text-slate-300 font-black uppercase text-xs italic">Your basket is empty</div>}
                  </div>
                  <div className={`p-8 sm:p-10 border-t flex flex-col sm:flex-row items-center justify-between shrink-0 gap-8 transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
                     <div className="text-center sm:text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total to Pay</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
@@ -1225,7 +1249,7 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Grand Total</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span></div>
+              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0 text-left"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Grand Total</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span></div>
               <div className="flex flex-col gap-3 print:hidden shrink-0">
                 <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Print Paper Receipt</button>
                 <button onClick={() => setReceiptToShow(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Done</button>
@@ -1236,6 +1260,15 @@ const App: React.FC = () => {
       </main>
 
       <ProductModal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingProduct(null); }} onSave={handleSaveProduct} initialData={editingProduct} theme={theme} />
+      
+      {/* Toasts list */}
+      <div className="fixed bottom-10 right-10 z-[200] space-y-4 pointer-events-none">
+         {toasts.map(t => (
+           <div key={t.id} className={`p-4 rounded-2xl shadow-2xl border text-xs font-black uppercase tracking-widest pointer-events-auto animate-in slide-in-from-right duration-300 ${t.type === 'success' ? 'bg-emerald-600 text-white border-emerald-500' : t.type === 'error' ? 'bg-rose-600 text-white border-rose-500' : 'bg-blue-600 text-white border-blue-500'}`}>
+              {t.message}
+           </div>
+         ))}
+      </div>
     </div>
   );
 };
@@ -1243,7 +1276,7 @@ const App: React.FC = () => {
 const StatCard = ({ title, value, icon, color, alert, theme }: { title: string, value: any, icon: React.ReactNode, color: string, alert?: boolean, theme: string }) => {
   const colorMap = { emerald: 'text-emerald-600', blue: 'text-blue-600', amber: 'text-amber-500', slate: 'text-slate-900 dark:text-white' };
   return (
-    <div className={`p-8 border-2 rounded-[3rem] transition-all flex flex-col justify-between ${alert ? 'border-rose-100 dark:border-rose-900/50 shadow-xl shadow-rose-600/10' : theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-50 shadow-sm'}`}>
+    <div className={`p-8 border-2 rounded-[3rem] transition-all flex flex-col justify-between text-left ${alert ? 'border-rose-100 dark:border-rose-900/50 shadow-xl shadow-rose-600/10' : theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-50 shadow-sm'}`}>
       <div className="flex items-center justify-between mb-8">
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] truncate italic">{title}</span>
         <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-50'} ${colorMap[color as keyof typeof colorMap]}`}>{icon}</div>
@@ -1252,5 +1285,16 @@ const StatCard = ({ title, value, icon, color, alert, theme }: { title: string, 
     </div>
   );
 };
+
+// Icons helper
+const BellIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+);
+const EyeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+);
+const EyeOffIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+);
 
 export default App;
