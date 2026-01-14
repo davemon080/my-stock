@@ -5,6 +5,7 @@ import { ICONS } from './constants.tsx';
 import Fuse from 'fuse.js';
 import ProductModal from './components/ProductModal.tsx';
 import { db } from './services/dbService.ts';
+import emailjs from 'https://esm.sh/@emailjs/browser@4.4.1';
 
 interface CartItem extends Product {
   cartQuantity: number;
@@ -22,6 +23,8 @@ interface OperationTask {
   desc: string;
   type: 'critical' | 'info' | 'success';
 }
+
+type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
 
 const App: React.FC = () => {
   const [isGlobalLoading, setIsGlobalLoading] = useState(false);
@@ -42,8 +45,8 @@ const App: React.FC = () => {
     }
   });
 
+  const [authView, setAuthView] = useState<AuthView>('login');
   const [loginRole, setLoginRole] = useState<UserRole>('Seller');
-  const [isRegisteringAdmin, setIsRegisteringAdmin] = useState(false);
   const [totalAdmins, setTotalAdmins] = useState(0);
   const [loginName, setLoginName] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
@@ -54,6 +57,11 @@ const App: React.FC = () => {
   const [verificationCode, setVerificationCode] = useState('');
   const [loginError, setLoginError] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+
+  // Reset Password Params
+  const [resetToken, setResetToken] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetRole, setResetRole] = useState<UserRole>('Seller');
 
   const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register' | 'Transactions' | 'Revenue' | 'Settings' | 'Approvals'>('Dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -188,8 +196,17 @@ const App: React.FC = () => {
           setSelectedBranchId(branches[0].id);
         }
       }
-    } catch (err) {
-      console.warn("Background data sync failed");
+
+      // Detect Password Reset mode from URL immediately
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('mode') === 'reset' && params.get('token')) {
+        setResetToken(params.get('token') || '');
+        setResetEmail(params.get('email') || '');
+        setResetRole((params.get('role') as UserRole) || 'Seller');
+        setAuthView('reset-password');
+      }
+    } catch (err: any) {
+      console.warn("Background data sync failed", err);
     }
   };
 
@@ -284,113 +301,228 @@ const App: React.FC = () => {
     setLoginError('');
     setIsGlobalLoading(true);
     
-    // Refresh admin counts to be absolutely sure of system state
-    const [freshAdminCount, freshConfig] = await Promise.all([
-      db.getTotalAdminsCount(),
-      db.getConfig()
-    ]);
-    setTotalAdmins(freshAdminCount);
-    
+    try {
+      const [freshAdminCount, freshConfig] = await Promise.all([
+        db.getTotalAdminsCount(),
+        db.getConfig()
+      ]);
+      setTotalAdmins(freshAdminCount);
+      
+      const normalizedEmail = loginEmail.toLowerCase().trim();
+
+      await new Promise(r => setTimeout(r, 1000));
+
+      if (loginRole === 'Admin') {
+        if (authView === 'register') {
+          if (loginPassword !== confirmPassword) {
+            setLoginError('Passwords do not match');
+            setIsGlobalLoading(false);
+            return;
+          }
+          if (!isValidEmailFormat(normalizedEmail)) {
+            setLoginError('Invalid email format');
+            setIsGlobalLoading(false);
+            return;
+          }
+          if (freshAdminCount > 0 && registerPasscode !== freshConfig.adminRegisterPasscode) {
+            setLoginError('Incorrect Admin Register Passcode');
+            setIsGlobalLoading(false);
+            return;
+          }
+          const existing = await db.getAdminByEmail(normalizedEmail);
+          if (existing) {
+            setLoginError('Email already registered');
+            setIsGlobalLoading(false);
+            return;
+          }
+
+          const newAdmin: Admin = {
+            id: Math.random().toString(36).substr(2, 9),
+            name: loginName,
+            email: normalizedEmail,
+            password: loginPassword,
+            createdAt: new Date().toISOString()
+          };
+          await db.registerAdmin(newAdmin);
+          showToast("Registration successful! Please log in.", "success");
+          setAuthView('login');
+          setTotalAdmins(prev => prev + 1);
+          setIsGlobalLoading(false);
+        } else {
+          const admin = await db.getAdminByEmail(normalizedEmail);
+          if (admin && admin.password === loginPassword) {
+            const adminUser = { 
+              role: 'Admin' as UserRole, 
+              name: admin.name, 
+              email: admin.email,
+              id: admin.id,
+              branchId: config.branches[0]?.id || '' 
+            };
+            setCurrentUser(adminUser);
+            setSelectedBranchId(adminUser.branchId);
+            showToast(`Welcome back, Boss!`, "success");
+          } else {
+            setLoginError('Invalid Email or Password');
+          }
+          setIsGlobalLoading(false);
+        }
+      } else {
+        if (loginStep === 'credentials') {
+          if (!isValidEmailFormat(normalizedEmail)) {
+            setLoginError('Invalid email address');
+            setIsGlobalLoading(false);
+            return;
+          }
+          const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail && s.password === loginPassword);
+          if (seller) {
+            setLoginStep('verification');
+            showToast("Sent a code to your email (try 1234)", "info");
+          } else {
+            setLoginError('Email or Pin is wrong');
+          }
+          setIsGlobalLoading(false);
+        } else {
+          if (verificationCode === '1234') {
+            const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail);
+            const staffUser = { 
+              role: 'Seller' as UserRole, 
+              name: seller!.name, 
+              email: seller!.email,
+              id: seller!.id,
+              branchId: seller!.branchId 
+            };
+            setCurrentUser(staffUser);
+            setSelectedBranchId(staffUser.branchId);
+            showToast(`Hi ${seller!.name}, you're logged in!`, "success");
+            setLoginStep('credentials');
+            setVerificationCode('');
+          } else {
+            setLoginError('Invalid code');
+          }
+          setIsGlobalLoading(false);
+        }
+      }
+    } catch (err: any) {
+      console.error("Login Error:", err);
+      const msg = err?.message || err?.text || 'A database error occurred.';
+      setLoginError(typeof msg === 'string' ? msg : 'Login failed');
+      setIsGlobalLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
     const normalizedEmail = loginEmail.toLowerCase().trim();
-
-    await new Promise(r => setTimeout(r, 1000));
-
-    if (loginRole === 'Admin') {
-      if (isRegisteringAdmin) {
-        if (loginPassword !== confirmPassword) {
-          setLoginError('Passwords do not match');
-          setIsGlobalLoading(false);
-          return;
-        }
-        if (!isValidEmailFormat(normalizedEmail)) {
-          setLoginError('Invalid email format');
-          setIsGlobalLoading(false);
-          return;
-        }
-        // If admins already exist, require matching passcode from DB
-        if (freshAdminCount > 0 && registerPasscode !== freshConfig.adminRegisterPasscode) {
-          setLoginError('Incorrect Admin Register Passcode');
-          setIsGlobalLoading(false);
-          return;
-        }
-        const existing = await db.getAdminByEmail(normalizedEmail);
-        if (existing) {
-          setLoginError('Email already registered');
-          setIsGlobalLoading(false);
-          return;
-        }
-
-        const newAdmin: Admin = {
-          id: Math.random().toString(36).substr(2, 9),
-          name: loginName,
-          email: normalizedEmail,
-          password: loginPassword,
-          createdAt: new Date().toISOString()
-        };
-        await db.registerAdmin(newAdmin);
-        showToast("Registration successful! Please log in.", "success");
-        setIsRegisteringAdmin(false);
-        setTotalAdmins(prev => prev + 1);
-        setIsGlobalLoading(false);
-      } else {
+    if (!isValidEmailFormat(normalizedEmail)) {
+      setLoginError('Enter your registered email address');
+      return;
+    }
+    
+    setIsGlobalLoading(true);
+    try {
+      // 1. Check DB for user
+      let userExists = false;
+      let userName = 'User';
+      if (loginRole === 'Admin') {
         const admin = await db.getAdminByEmail(normalizedEmail);
-        if (admin && admin.password === loginPassword) {
-          const adminUser = { 
-            role: 'Admin' as UserRole, 
-            name: admin.name, 
-            email: admin.email,
-            id: admin.id,
-            branchId: config.branches[0]?.id || '' 
-          };
-          setCurrentUser(adminUser);
-          setSelectedBranchId(adminUser.branchId);
-          showToast(`Welcome back, Boss!`, "success");
-        } else {
-          setLoginError('Invalid Email or Password');
-        }
-        setIsGlobalLoading(false);
-      }
-    } else {
-      if (loginStep === 'credentials') {
-        if (!isValidEmailFormat(normalizedEmail)) {
-          setLoginError('Invalid email address');
-          setIsGlobalLoading(false);
-          return;
-        }
-        const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail && s.password === loginPassword);
-        if (seller) {
-          setLoginStep('verification');
-          showToast("Sent a code to your email (try 1234)", "info");
-        } else {
-          setLoginError('Email or Pin is wrong');
-        }
-        setIsGlobalLoading(false);
+        userExists = !!admin;
+        userName = admin?.name || 'Administrator';
       } else {
-        if (verificationCode === '1234') {
-          const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail);
-          const staffUser = { 
-            role: 'Seller' as UserRole, 
-            name: seller!.name, 
-            email: seller!.email,
-            id: seller!.id,
-            branchId: seller!.branchId 
-          };
-          setCurrentUser(staffUser);
-          setSelectedBranchId(staffUser.branchId);
-          showToast(`Hi ${seller!.name}, you're logged in!`, "success");
-          setLoginStep('credentials');
-          setVerificationCode('');
-        } else {
-          setLoginError('Invalid code');
-        }
-        setIsGlobalLoading(false);
+        const sellers = await db.getSellers();
+        const staff = sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail);
+        userExists = !!staff;
+        userName = staff?.name || 'Staff Member';
       }
+
+      if (!userExists) {
+        setLoginError('No account found with that email.');
+        setIsGlobalLoading(false);
+        return;
+      }
+
+      // 2. Generate token and construct ACCURATE production link
+      const token = Math.random().toString(36).substr(2, 12);
+      await db.setResetToken(normalizedEmail, loginRole, token);
+      
+      // FIXED: Hardcoded production base URL to ensure reaching the correct app page
+      const resetLink = `https://my-stock-beige.vercel.app?mode=reset&token=${token}&email=${encodeURIComponent(normalizedEmail)}&role=${loginRole}`;
+      
+      // 3. Send to EmailJS - USING {{email}} and {{link}}
+      const templateParams = {
+        email: normalizedEmail, // Matches template recipient variable {{email}}
+        user_name: userName,
+        link: resetLink         // Matches template link variable {{link}}
+      };
+
+      const result = await emailjs.send(
+        'service_a8j70l9',
+        'template_lpi8dgd',
+        templateParams,
+        '4U1HeX-R2C-V1cJ3c'
+      );
+      
+      if (result.status === 200) {
+        showToast("Instructions sent to your email!", "success");
+        setAuthView('login'); // Switch view immediately
+        setLoginEmail('');
+      } else {
+        throw new Error('Email service encountered an error.');
+      }
+    } catch (err: any) {
+      console.error("Forgot Password Error:", err);
+      const errorMsg = err?.text || err?.message || 'Failed to dispatch email link.';
+      setLoginError(typeof errorMsg === 'string' ? errorMsg : 'Service Error');
+    } finally {
+      setIsGlobalLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (loginPassword !== confirmPassword) {
+      setLoginError('Passwords do not match');
+      return;
+    }
+    if (loginPassword.length < 4) {
+      setLoginError('Password must be at least 4 characters');
+      return;
+    }
+
+    setIsGlobalLoading(true);
+    try {
+      const isValid = await db.validateResetToken(resetEmail, resetRole, resetToken);
+      if (!isValid) {
+        setLoginError('Your reset link has expired or is invalid.');
+        setIsGlobalLoading(false);
+        return;
+      }
+      
+      await db.updatePasswordByToken(resetEmail, resetRole, resetToken, loginPassword);
+      showToast("Password updated! Please sign in now.", "success");
+      
+      // Clear query params to prevent re-triggering the reset view
+      const url = new URL(window.location.href);
+      url.search = '';
+      window.history.replaceState({}, document.title, url.toString());
+      
+      setAuthView('login');
+      setLoginPassword('');
+      setConfirmPassword('');
+      setLoginEmail(resetEmail);
+    } catch (err: any) {
+      console.error("Reset Password Error:", err);
+      const msg = err?.message || err?.text || 'Could not update password.';
+      setLoginError(typeof msg === 'string' ? msg : 'Error');
+    } finally {
+      setIsGlobalLoading(false);
     }
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    showToast("Logged out safely", "info");
+    showToast("Logged out successfully", "info");
   };
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,7 +533,7 @@ const App: React.FC = () => {
       reader.onloadend = async () => {
         await new Promise(r => setTimeout(r, 1200));
         setConfig(prev => ({ ...prev, logoUrl: reader.result as string }));
-        showToast("New logo saved!", "success");
+        showToast("Store logo updated!", "success");
         setIsGlobalLoading(false);
       };
       reader.readAsDataURL(file);
@@ -414,14 +546,14 @@ const App: React.FC = () => {
 
   const addToCart = (product: Product) => {
     if (product.quantity <= 0) {
-      showToast("Sorry, this is sold out!", "error");
+      showToast("Item is out of stock!", "error");
       return;
     }
     const currentCart = [...cart];
     const existing = currentCart.find(i => i.id === product.id);
     if (existing) {
       if (existing.cartQuantity >= product.quantity) {
-        showToast(`No more left in stock`, "info");
+        showToast(`No more items available in stock`, "info");
         return;
       }
       const updated = currentCart.map(i => i.id === product.id ? { ...i, cartQuantity: i.cartQuantity + 1 } : i);
@@ -438,7 +570,7 @@ const App: React.FC = () => {
     
     let targetNum = num;
     if (targetNum > real.quantity) {
-      showToast(`We only have ${real.quantity} left`, "info");
+      showToast(`Only ${real.quantity} items remaining`, "info");
       targetNum = real.quantity;
     }
     
@@ -449,7 +581,7 @@ const App: React.FC = () => {
   const removeFromCart = (productId: string) => {
     const updated = cart.filter(i => i.id !== productId);
     updateBranchCart(updated);
-    showToast("Removed from basket", "info");
+    showToast("Item removed from basket", "info");
   };
 
   const completeCheckout = async () => {
@@ -469,8 +601,8 @@ const App: React.FC = () => {
     updateBranchCart([]);
     setIsBasketOpen(false);
     setReceiptToShow(tx);
-    showToast("Sold! Paper printing...", "success");
-    addNotification(`${currentUser?.name} sold items worth ₦${total.toLocaleString()}. Profit: ₦${(total - totalCost).toLocaleString()}.`, 'success');
+    showToast("Checkout complete! Printing receipt...", "success");
+    addNotification(`${currentUser?.name} processed a sale of ₦${total.toLocaleString()}.`, 'success');
     setIsGlobalLoading(false);
   };
 
@@ -480,8 +612,8 @@ const App: React.FC = () => {
       if (existing) {
         setConfirmModal({
           isOpen: true,
-          title: "Product Found",
-          message: `"${data.name}" is already in your inventory (SKU: ${existing.sku}). Do you want to edit the existing item instead?`,
+          title: "Existing Item",
+          message: `"${data.name}" already exists. Switch to editing that item instead?`,
           onConfirm: () => {
             setEditingProduct(existing);
             setConfirmModal(null);
@@ -509,8 +641,8 @@ const App: React.FC = () => {
         status: 'PENDING'
       };
       await db.addApprovalRequest(approvalReq);
-      showToast("Sent to Boss for checking", "info");
-      addNotification(`${currentUser.name} wants to ${isEditing ? 'change' : 'add'} ${data.name}. Go to Requests to see it.`, 'info');
+      showToast("Approval request sent to Admin", "info");
+      addNotification(`${currentUser.name} requested to ${isEditing ? 'modify' : 'add'} ${data.name}.`, 'info');
       setIsModalOpen(false);
       setEditingProduct(null);
     } else {
@@ -520,8 +652,8 @@ const App: React.FC = () => {
       await loadBranchData();
       setIsModalOpen(false);
       setEditingProduct(null);
-      showToast("Item saved!", "success");
-      addNotification(`Boss updated item: ${data.name}.`, 'success');
+      showToast("Inventory updated!", "success");
+      addNotification(`Item updated by Admin: ${data.name}.`, 'success');
     }
     setIsGlobalLoading(false);
   };
@@ -530,8 +662,8 @@ const App: React.FC = () => {
     const product = activeBranchProducts.find(p => p.id === id);
     setConfirmModal({
       isOpen: true,
-      title: "Delete item?",
-      message: `Really remove ${product?.name}? ${currentUser?.role === 'Seller' ? 'The Boss must say yes first.' : 'Deleting now.'}`,
+      title: "Remove Item?",
+      message: `Are you sure you want to delete ${product?.name}? ${currentUser?.role === 'Seller' ? 'Admin must approve this deletion.' : 'This will happen instantly.'}`,
       onConfirm: async () => {
         setIsGlobalLoading(true);
         await new Promise(r => setTimeout(r, 1200));
@@ -547,13 +679,13 @@ const App: React.FC = () => {
             status: 'PENDING'
           };
           await db.addApprovalRequest(approvalReq);
-          showToast("Sent to Boss", "info");
-          addNotification(`${currentUser.name} wants to delete: ${product?.name}.`, 'alert');
+          showToast("Delete request sent to Admin", "info");
+          addNotification(`${currentUser.name} requested to delete: ${product?.name}.`, 'alert');
         } else {
           await db.deleteProduct(id);
           await loadBranchData();
-          showToast("Deleted!", "info");
-          addNotification(`Boss deleted item: ${product?.name}.`, 'alert');
+          showToast("Item deleted!", "info");
+          addNotification(`Item deleted by Admin: ${product?.name}.`, 'alert');
         }
         setConfirmModal(null);
         setIsGlobalLoading(false);
@@ -583,22 +715,22 @@ const App: React.FC = () => {
         };
         await db.upsertProduct(product, req.branchId);
       }
-      showToast("Request Accepted!", "success");
-      addNotification(`Boss said YES to ${req.requestedBy}'s request for ${req.productData.name}.`, 'success');
+      showToast("Request approved!", "success");
+      addNotification(`Staff request for ${req.productData.name} was approved.`, 'success');
     } else {
-      showToast("Request Rejected", "info");
-      addNotification(`Boss said NO to ${req.requestedBy}'s request for ${req.productData.name}.`, 'alert');
+      showToast("Request declined", "info");
+      addNotification(`Staff request for ${req.productData.name} was declined.`, 'alert');
     }
     await loadBranchData();
     setIsGlobalLoading(false);
   };
 
   const handleWipeBranch = async (branchId: string) => {
-    const branchName = config.branches.find(b => b.id === branchId)?.name || 'Store';
+    const branchName = config.branches.find(b => b.id === branchId)?.name || 'Branch';
     setConfirmModal({
       isOpen: true,
-      title: `CLEAN OUT ${branchName.toUpperCase()}?`,
-      message: `This will delete EVERYTHING for ${branchName} (sales, stock, etc). You can't undo this!`,
+      title: `Wipe all data for ${branchName}?`,
+      message: `This will erase ALL products and transactions for this store permanently. Continue?`,
       isDangerous: true,
       onConfirm: async () => {
         setConfirmModal(null);
@@ -606,13 +738,13 @@ const App: React.FC = () => {
         try {
           await db.wipeBranchData(branchId);
           await new Promise(r => setTimeout(r, 2000));
-          showToast(`${branchName} is now empty`, "success");
+          showToast(`${branchName} data has been reset`, "success");
           if (selectedBranchId === branchId) {
             await loadBranchData();
           }
           await initApp();
         } catch (e) {
-          showToast("Failed to clean store", "error");
+          showToast("Wipe operation failed", "error");
         } finally {
           setIsGlobalLoading(false);
           setIsWipeModalOpen(false);
@@ -658,30 +790,30 @@ const App: React.FC = () => {
 
   const handleVerifyStaffEmail = async (email: string) => {
     if (!isValidEmailFormat(email)) {
-      showToast("That email doesn't look right!", "error");
+      showToast("Invalid email format!", "error");
       return;
     }
     setIsVerifyingEmail(true);
     await new Promise(r => setTimeout(r, 2000));
     setIsStaffEmailVerified(true);
-    showToast(`Email ${email} is real and ready!`, "success");
+    showToast(`Staff email verified!`, "success");
     setIsVerifyingEmail(false);
   };
 
   const handleAdminPasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAdminPassword || newAdminPassword.length < 4) {
-      showToast("Password too short!", "error");
+      showToast("Password must be at least 4 chars!", "error");
       return;
     }
     setIsGlobalLoading(true);
     try {
       await db.updateAdminPassword(currentUser!.id, newAdminPassword);
       await new Promise(r => setTimeout(r, 1200));
-      showToast("Admin password updated!", "success");
+      showToast("Admin password changed!", "success");
       setNewAdminPassword('');
-    } catch (err) {
-      showToast("Failed to update password", "error");
+    } catch (err: any) {
+      showToast("Password update failed", "error");
     } finally {
       setIsGlobalLoading(false);
     }
@@ -697,17 +829,17 @@ const App: React.FC = () => {
     try {
       await db.updateRegisterPasscode(newRegisterPasscode);
       await new Promise(r => setTimeout(r, 1200));
-      showToast("Register passcode updated!", "success");
+      showToast("Admin register code updated!", "success");
       setConfig(prev => ({ ...prev, adminRegisterPasscode: newRegisterPasscode }));
       setNewRegisterPasscode('');
-    } catch (err) {
-      showToast("Failed to update passcode", "error");
+    } catch (err: any) {
+      showToast("Passcode update failed", "error");
     } finally {
       setIsGlobalLoading(false);
     }
   };
 
-  const LoadingOverlay = ({ message = "Just a second..." }: { message?: string }) => (
+  const LoadingOverlay = ({ message = "Just a moment..." }: { message?: string }) => (
     <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
       <div className="w-16 h-16 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
       <p className="mt-6 text-[10px] font-black text-white uppercase tracking-[0.3em] animate-pulse">{message}</p>
@@ -717,7 +849,7 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
       <div className={`min-h-screen flex items-center justify-center p-6 transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'}`}>
-        {isGlobalLoading && <LoadingOverlay message={isRegisteringAdmin ? "Processing account..." : "Checking credentials..."} />}
+        {isGlobalLoading && <LoadingOverlay message={authView === 'forgot-password' ? "Preparing reset instructions..." : authView === 'reset-password' ? "Changing password..." : "Please wait..."} />}
         <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl transition-all ${theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}>
           <div className="text-center mb-10 text-left">
             {config.logoUrl ? (
@@ -726,72 +858,109 @@ const App: React.FC = () => {
               <div className="w-20 h-20 bg-blue-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-white shadow-xl"><ICONS.Inventory /></div>
             )}
             <h1 className={`text-3xl font-black tracking-tight uppercase leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{config.supermarketName}</h1>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 italic">Staff Access Portal</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 italic">Security Portal</p>
           </div>
           
           <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl mb-8">
             {(['Seller', 'Admin'] as UserRole[]).map(r => (
-              <button key={r} onClick={() => { setLoginRole(r); setLoginError(''); setIsRegisteringAdmin(false); }} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${loginRole === r ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-md' : 'text-slate-400'}`}>
+              <button key={r} onClick={() => { setLoginRole(r); setLoginError(''); }} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${loginRole === r ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-md' : 'text-slate-400'}`}>
                 {r === 'Seller' ? 'Cashier' : 'Boss (Admin)'}
               </button>
             ))}
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-6">
-            {loginRole === 'Admin' && isRegisteringAdmin && (
-              <div className="space-y-2 text-left">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
-                <input type="text" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginName} onChange={e => setLoginName(e.target.value)} placeholder="e.g. John Doe" />
-              </div>
-            )}
-            
-            <div className="space-y-2 text-left">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
-              <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="me@example.com" />
-            </div>
-
-            <div className="space-y-2 text-left">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{loginRole === 'Admin' ? 'Password' : 'Staff Pin'}</label>
-              <div className="relative">
-                <input type={showLoginPassword ? "text" : "password"} required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold pr-12" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
-                <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                  {showLoginPassword ? <EyeOffIcon /> : <EyeIcon />}
-                </button>
-              </div>
-            </div>
-
-            {loginRole === 'Admin' && isRegisteringAdmin && (
-              <>
-                <div className="space-y-2 text-left">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirm Password</label>
-                  <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+          {authView === 'forgot-password' ? (
+            <form onSubmit={handleForgotPassword} className="space-y-6">
+               <div className="space-y-2 text-left">
+                 <h2 className="text-lg font-black uppercase italic dark:text-white">Recover Account</h2>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Enter your registered email and we'll send a secure link.</p>
+               </div>
+               <div className="space-y-2 text-left">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
+                 <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="your@email.com" />
+               </div>
+               {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl">{loginError}</p>}
+               <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95">Send Reset Instructions</button>
+               <button type="button" onClick={() => { setAuthView('login'); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest">Back to Sign In</button>
+            </form>
+          ) : authView === 'reset-password' ? (
+            <form onSubmit={handleResetPassword} className="space-y-6">
+               <div className="space-y-2 text-left">
+                 <h2 className="text-lg font-black uppercase italic dark:text-white">New Password</h2>
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">Account Recovery: {resetEmail}</p>
+               </div>
+               <div className="space-y-2 text-left">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">New Password</label>
+                 <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
+               </div>
+               <div className="space-y-2 text-left">
+                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirm Password</label>
+                 <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+               </div>
+               {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl">{loginError}</p>}
+               <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95">Update Password</button>
+               <button type="button" onClick={() => { setAuthView('login'); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest">Cancel Recovery</button>
+            </form>
+          ) : (
+            <form onSubmit={handleLogin} className="space-y-6">
+              {authView === 'register' && (
+                <div className="space-y-2 text-left animate-in slide-in-from-top duration-200">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
+                  <input type="text" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginName} onChange={e => setLoginName(e.target.value)} placeholder="Full name..." />
                 </div>
-                {totalAdmins > 0 && (
-                   <div className="space-y-2 text-left animate-in slide-in-from-top duration-300">
-                     <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest ml-1 italic">Register Passcode Required</label>
-                     <input type="password" required className="w-full px-6 py-4 bg-rose-50 dark:bg-rose-900/10 dark:border-rose-900/30 border-2 border-rose-100 rounded-2xl focus:border-rose-600 outline-none font-bold" value={registerPasscode} onChange={e => setRegisterPasscode(e.target.value)} placeholder="Required for new admins" />
-                   </div>
-                )}
-                {totalAdmins === 0 && (
-                   <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
-                      <p className="text-[9px] font-bold text-blue-600 dark:text-blue-400 leading-relaxed text-left uppercase tracking-wider">You are the first admin. No passcode needed to create this account.</p>
-                   </div>
-                )}
-              </>
-            )}
+              )}
+              
+              <div className="space-y-2 text-left">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
+                <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="your@email.com" />
+              </div>
 
-            {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
-            
-            <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95">
-              {loginRole === 'Admin' ? (isRegisteringAdmin ? 'Create Admin Account' : 'Sign In') : 'Proceed to Work'}
-            </button>
+              <div className="space-y-2 text-left">
+                <div className="flex justify-between items-center ml-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{loginRole === 'Admin' ? 'Password' : 'Staff Pin'}</label>
+                  <button type="button" onClick={() => { setAuthView('forgot-password'); setLoginError(''); }} className="text-[8px] font-black uppercase text-blue-600 hover:text-blue-700 tracking-widest">Forgot Password?</button>
+                </div>
+                <div className="relative">
+                  <input type={showLoginPassword ? "text" : "password"} required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold pr-12" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
+                  <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                    {showLoginPassword ? <EyeOffIcon /> : <EyeIcon />}
+                  </button>
+                </div>
+              </div>
 
-            {loginRole === 'Admin' && (
-              <button type="button" onClick={() => { setIsRegisteringAdmin(!isRegisteringAdmin); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest">
-                {isRegisteringAdmin ? 'Already have an account? Sign In' : "Don't have an account? Register"}
+              {authView === 'register' && (
+                <>
+                  <div className="space-y-2 text-left">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirm Password</label>
+                    <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
+                  </div>
+                  {totalAdmins > 0 && (
+                     <div className="space-y-2 text-left animate-in slide-in-from-top duration-300">
+                       <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest ml-1 italic">Register Passcode Required</label>
+                       <input type="password" required className="w-full px-6 py-4 bg-rose-50 dark:bg-rose-900/10 dark:border-rose-900/30 border-2 border-rose-100 rounded-2xl focus:border-rose-600 outline-none font-bold" value={registerPasscode} onChange={e => setRegisterPasscode(e.target.value)} placeholder="Contact Lead Admin" />
+                     </div>
+                  )}
+                  {totalAdmins === 0 && (
+                     <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
+                        <p className="text-[9px] font-bold text-blue-600 dark:text-blue-400 leading-relaxed text-left uppercase tracking-wider">First account creation mode. Secure this login.</p>
+                     </div>
+                  )}
+                </>
+              )}
+
+              {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl">{loginError}</p>}
+              
+              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95">
+                {loginRole === 'Admin' ? (authView === 'register' ? 'Register Admin' : 'Sign In') : 'Cashier Access'}
               </button>
-            )}
-          </form>
+
+              {loginRole === 'Admin' && (
+                <button type="button" onClick={() => { setAuthView(authView === 'register' ? 'login' : 'register'); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest">
+                  {authView === 'register' ? 'Existing Admin? Sign In' : "New Admin? Register"}
+                </button>
+              )}
+            </form>
+          )}
         </div>
       </div>
     );
@@ -799,12 +968,11 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
-      {(isGlobalLoading || isVerifyingEmail) && <LoadingOverlay message={isVerifyingEmail ? "Checking if email is real..." : undefined} />}
+      {(isGlobalLoading || isVerifyingEmail) && <LoadingOverlay message={isVerifyingEmail ? "Verifying email address..." : undefined} />}
       {isSwitchingBranch && (
         <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-slate-950/40 backdrop-blur-xl animate-in fade-in duration-300">
            <div className="w-20 h-20 mb-8 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
-           <h2 className="text-xl font-black text-white uppercase tracking-widest">Changing Store...</h2>
-           <p className="text-[10px] font-bold text-slate-300 uppercase tracking-[0.3em] mt-2 animate-pulse">Checking stock at {activeBranch?.name}</p>
+           <h2 className="text-xl font-black text-white uppercase tracking-widest">Changing Store Branch...</h2>
         </div>
       )}
 
@@ -821,19 +989,18 @@ const App: React.FC = () => {
             <div className={`relative w-full max-w-md h-full shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-300 ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
                <div className="p-8 border-b dark:border-slate-800 flex items-center justify-between shrink-0 text-left">
                   <div className="min-w-0 pr-4">
-                     <h3 className="text-xl font-black uppercase tracking-tight italic leading-none dark:text-white">Recent Activity</h3>
-                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-2">Logs for {currentUser.name}</p>
+                     <h3 className="text-xl font-black uppercase tracking-tight italic leading-none dark:text-white">Activity Log</h3>
                   </div>
                   <button onClick={() => { setIsNotificationsOpen(false); markAllRead(); }} className={`p-4 rounded-2xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                </div>
                <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                   {visibleNotifications.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-20 text-slate-300 opacity-20">
+                    <div className="flex flex-col items-center justify-center py-20 text-slate-300 opacity-20 text-center">
                        <div className="scale-150 mb-6"><ICONS.Bell /></div>
-                       <p className="text-[10px] font-black uppercase tracking-widest mt-4">Nothing happened yet</p>
+                       <p className="text-[10px] font-black uppercase tracking-widest mt-4">No recent activity detected</p>
                     </div>
                   ) : visibleNotifications.map(n => (
-                    <div key={n.id} className={`p-6 rounded-[2rem] border transition-all ${new Date(n.timestamp).getTime() <= lastViewedAt ? 'opacity-60 grayscale-[0.5]' : 'bg-slate-50 dark:bg-slate-800 border-blue-100 dark:border-blue-900/30 shadow-md ring-1 ring-blue-500/20'}`}>
+                    <div key={n.id} className={`p-6 rounded-[2rem] border transition-all ${new Date(n.timestamp).getTime() <= lastViewedAt ? 'opacity-60' : 'bg-slate-50 dark:bg-slate-800 border-blue-100 dark:border-blue-900/30 shadow-md ring-1 ring-blue-500/20'}`}>
                        <div className="flex justify-between items-start mb-2">
                          <span className={`text-[8px] font-black uppercase px-3 py-1 rounded-lg ${n.type === 'success' ? 'bg-emerald-100 text-emerald-600' : n.type === 'alert' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'}`}>{n.type}</span>
                          <span className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{new Date(n.timestamp).toLocaleTimeString()}</span>
@@ -843,8 +1010,8 @@ const App: React.FC = () => {
                   ))}
                </div>
                <div className="p-8 border-t dark:border-slate-800 text-center flex flex-col gap-3">
-                  <button onClick={() => { markAllRead(); setIsNotificationsOpen(false); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all">Clear & Close</button>
-                  <button onClick={clearLogsLocally} className="text-[10px] font-black uppercase text-rose-500 hover:text-rose-600 transition-colors tracking-widest">Wipe Log view</button>
+                  <button onClick={() => { markAllRead(); setIsNotificationsOpen(false); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-blue-700 transition-all">Dismiss All</button>
+                  <button onClick={clearLogsLocally} className="text-[10px] font-black uppercase text-rose-500 hover:text-rose-600 transition-colors tracking-widest">Clear View</button>
                </div>
             </div>
          </div>
@@ -853,8 +1020,8 @@ const App: React.FC = () => {
       {isWipeModalOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-md">
           <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl animate-in zoom-in-95 duration-200 ${theme === 'dark' ? 'bg-slate-900 border border-slate-800 text-white' : 'bg-white text-slate-900'}`}>
-            <h3 className="text-xl font-black mb-4 uppercase tracking-tight text-left">Pick a Store to Wipe</h3>
-            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed italic text-left">Warning: This will delete every item and sale for this store forever.</p>
+            <h3 className="text-xl font-black mb-4 uppercase tracking-tight text-left">Select Branch to Reset</h3>
+            <p className="text-sm font-bold text-slate-500 mb-8 leading-relaxed italic text-left">Permanent action: Erases all stock and sales for chosen store.</p>
             <div className="space-y-3 mb-10 overflow-y-auto max-h-[300px] custom-scrollbar pr-2">
               {config.branches.map(b => (
                 <button 
@@ -879,8 +1046,8 @@ const App: React.FC = () => {
               <h3 className="text-xl font-black mb-4 uppercase tracking-tight text-left">{confirmModal.title}</h3>
               <p className="text-sm font-bold text-slate-500 mb-10 leading-relaxed text-left">{confirmModal.message}</p>
               <div className="flex gap-4">
-                 <button onClick={() => setConfirmModal(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest">Stop</button>
-                 <button onClick={confirmModal.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest ${confirmModal.isDangerous ? 'bg-rose-600' : 'bg-blue-600'}`}>Yes, do it</button>
+                 <button onClick={() => setConfirmModal(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest">Cancel</button>
+                 <button onClick={confirmModal.onConfirm} className={`flex-1 py-4 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest ${confirmModal.isDangerous ? 'bg-rose-600' : 'bg-blue-600'}`}>Confirm Action</button>
               </div>
            </div>
         </div>
@@ -896,7 +1063,7 @@ const App: React.FC = () => {
             )}
             <div className="min-w-0">
               <h1 className="text-lg font-black italic truncate uppercase leading-none tracking-tighter">{config.supermarketName}</h1>
-              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Store Manager</p>
+              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">System Management</p>
             </div>
           </div>
           <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-2 text-slate-400 hover:text-white">
@@ -909,9 +1076,9 @@ const App: React.FC = () => {
             { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Stock Room' },
             { id: 'Register', icon: <ICONS.Register />, label: 'Check Out' },
             { id: 'Transactions', icon: <ICONS.Register />, label: 'Sales History' },
-            { id: 'Revenue', icon: <ICONS.Revenue />, label: 'Money Report', adminOnly: true },
+            { id: 'Revenue', icon: <ICONS.Revenue />, label: 'Revenue Report', adminOnly: true },
             { id: 'Approvals', icon: <ICONS.Alert />, label: 'Requests', adminOnly: true, count: pendingApprovals.length },
-            { id: 'Settings', icon: <ICONS.Dashboard />, label: 'Settings', adminOnly: true }
+            { id: 'Settings', icon: <ICONS.Dashboard />, label: 'Store Settings', adminOnly: true }
           ].map(item => (
             (!item.adminOnly || currentUser.role === 'Admin') && (
               <button key={item.id} onClick={() => { setActiveTab(item.id as any); setIsSidebarOpen(false); }} className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl transition-all font-bold text-sm ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>
@@ -922,7 +1089,7 @@ const App: React.FC = () => {
           ))}
         </nav>
         <div className="p-6 shrink-0 border-t border-white/5">
-           <button onClick={handleLogout} className="w-full py-3 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-500 hover:text-white transition-all">Sign Out</button>
+           <button onClick={handleLogout} className="w-full py-3 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-500 hover:text-white transition-all">Log Out</button>
         </div>
       </aside>
 
@@ -933,8 +1100,8 @@ const App: React.FC = () => {
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
             <div className="min-w-0">
-              <h2 className="text-sm sm:text-xl font-black uppercase tracking-tight leading-none truncate">{activeTab === 'Revenue' ? 'Money Report' : activeTab}</h2>
-              <p className="hidden md:block text-[9px] font-black text-blue-600 uppercase tracking-widest mt-1 italic truncate">Hello, {currentUser.name}</p>
+              <h2 className="text-sm sm:text-xl font-black uppercase tracking-tight leading-none truncate">{activeTab}</h2>
+              <p className="hidden md:block text-[9px] font-black text-blue-600 uppercase tracking-widest mt-1 italic truncate">{currentUser.name}'s Session</p>
             </div>
           </div>
           
@@ -948,7 +1115,7 @@ const App: React.FC = () => {
             )}
 
             <button onClick={() => { setIsNotificationsOpen(true); }} className={`relative p-2 sm:p-2.5 rounded-xl transition-all shrink-0 ${theme === 'dark' ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-500'}`}>
-              <BellIcon />
+              <ICONS.Bell />
               {unreadNotificationsCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 bg-rose-500 text-white text-[8px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white dark:border-slate-900 animate-pulse">{unreadNotificationsCount}</span>
               )}
@@ -967,11 +1134,11 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar pb-32">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar pb-32 text-left">
           {activeTab === 'Settings' && currentUser.role === 'Admin' && (
             <div className="max-w-4xl mx-auto space-y-10 pb-40">
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Logo & Name</h3>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Logo & Name</h3>
                   <div className="space-y-8">
                     <div className={`flex flex-col sm:flex-row items-center gap-6 p-6 rounded-[2.5rem] border-2 border-dashed ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                       <div className="w-24 h-24 bg-slate-200 rounded-[2rem] flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
@@ -994,11 +1161,11 @@ const App: React.FC = () => {
                </div>
 
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Admin Security</h3>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Security Management</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                      <form onSubmit={handleAdminPasswordChange} className="space-y-4 text-left">
                         <div className="space-y-1">
-                           <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Change My Password</label>
+                           <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Admin Password</label>
                            <div className="relative">
                              <input type={showNewAdminPassword ? "text" : "password"} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Enter new password" />
                              <button type="button" onClick={() => setShowNewAdminPassword(!showNewAdminPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
@@ -1011,21 +1178,21 @@ const App: React.FC = () => {
 
                      <form onSubmit={handleUpdateRegisterPasscode} className="space-y-4 text-left">
                         <div className="space-y-1">
-                           <label className="text-[10px] font-black uppercase text-rose-500 ml-1">Admin Register Passcode</label>
+                           <label className="text-[10px] font-black uppercase text-rose-500 ml-1">Staff Registration Code</label>
                            <div className="relative">
-                             <input type={showNewRegisterPasscode ? "text" : "password"} value={newRegisterPasscode} onChange={e => setNewRegisterPasscode(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-rose-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Register code for new admins" />
+                             <input type={showNewRegisterPasscode ? "text" : "password"} value={newRegisterPasscode} onChange={e => setNewRegisterPasscode(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-rose-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Register code for new staff" />
                              <button type="button" onClick={() => setShowNewRegisterPasscode(!showNewRegisterPasscode)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                                 {showNewRegisterPasscode ? <EyeOffIcon /> : <EyeIcon />}
                              </button>
                            </div>
                         </div>
-                        <button type="submit" className="w-full py-4 bg-rose-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Set Registration Code</button>
+                        <button type="submit" className="w-full py-4 bg-rose-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Set Register Code</button>
                      </form>
                   </div>
                </div>
 
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Store Branches</h3>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Store Branches</h3>
                   <form onSubmit={async (e) => {
                     e.preventDefault();
                     const form = e.target as HTMLFormElement;
@@ -1039,16 +1206,16 @@ const App: React.FC = () => {
                     } else {
                       const branch = { id: 'br_' + Math.random().toString(36).substr(2, 5), name: fd.get('branchName') as string, location: fd.get('branchLoc') as string, createdAt: new Date().toISOString() };
                       await db.addBranch(branch);
-                      showToast("New branch added!", "success");
+                      showToast("Branch added successfully!", "success");
                     }
                     const branches = await db.getBranches();
                     setConfig({ ...config, branches });
                     form.reset();
                     setIsGlobalLoading(false);
                   }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 text-left">
-                    <input name="branchName" required defaultValue={editingBranch?.name || ''} placeholder="Branch Name" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <input name="branchLoc" required defaultValue={editingBranch?.location || ''} placeholder="Address" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">{editingBranch ? 'Update Branch' : 'Add New Store'}</button>
+                    <input name="branchName" required defaultValue={editingBranch?.name || ''} placeholder="Store Name" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <input name="branchLoc" required defaultValue={editingBranch?.location || ''} placeholder="Store Address" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">{editingBranch ? 'Update Store Branch' : 'Create New Branch'}</button>
                   </form>
                   <div className="space-y-4">
                     {config.branches.map(b => (
@@ -1057,7 +1224,7 @@ const App: React.FC = () => {
                         <div className="flex gap-2">
                            <button onClick={() => setEditingBranch(b)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
                            {config.branches.length > 1 && (
-                             <button onClick={() => { setConfirmModal({ isOpen: true, title: "Delete Store?", message: "This will remove all stock info for this store.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteBranch(b.id); const brs = await db.getBranches(); setConfig({...config, branches: brs}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Branch removed", "info"); setIsGlobalLoading(false); } }); }} className="p-3 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button>
+                             <button onClick={() => { setConfirmModal({ isOpen: true, title: "Remove Branch?", message: "Warning: This erases branch stock data.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteBranch(b.id); const brs = await db.getBranches(); setConfig({...config, branches: brs}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Store branch removed", "info"); setIsGlobalLoading(false); } }); }} className="p-3 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button>
                            )}
                         </div>
                       </div>
@@ -1066,11 +1233,11 @@ const App: React.FC = () => {
                </div>
 
                <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Staff Members</h3>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic">Staff Directory</h3>
                   <form onSubmit={async (e) => {
                     e.preventDefault();
                     if (!isStaffEmailVerified) {
-                      showToast("Check the email first!", "error");
+                      showToast("Verify staff email first!", "error");
                       return;
                     }
                     const form = e.target as HTMLFormElement;
@@ -1082,17 +1249,17 @@ const App: React.FC = () => {
                     await db.addSeller(seller);
                     setEditingSeller(null);
                     setIsStaffEmailVerified(false);
-                    showToast("Staff saved!", "success");
+                    showToast("Staff account saved!", "success");
                     const sellers = await db.getSellers();
                     setConfig({ ...config, sellers });
                     form.reset();
                     setIsGlobalLoading(false);
                   }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10 text-left">
-                    <input name="staffName" required defaultValue={editingSeller?.name || ''} placeholder="Staff Full Name" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <input name="staffName" required defaultValue={editingSeller?.name || ''} placeholder="Full Name" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
                     <div className="relative group">
-                      <input name="staffEmail" required defaultValue={editingSeller?.email || ''} type="email" placeholder="Email Address" className={`w-full px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'} ${isStaffEmailVerified ? 'border-emerald-500' : ''}`} onChange={() => { setIsStaffEmailVerified(false); }} />
+                      <input name="staffEmail" required defaultValue={editingSeller?.email || ''} type="email" placeholder="Staff Email" className={`w-full px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'} ${isStaffEmailVerified ? 'border-emerald-500' : ''}`} onChange={() => { setIsStaffEmailVerified(false); }} />
                       <button type="button" onClick={(e) => { const el = (e.currentTarget.previousSibling as HTMLInputElement); handleVerifyStaffEmail(el.value); }} className={`absolute right-4 top-1/2 -translate-y-1/2 px-3 py-1 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all ${isStaffEmailVerified ? 'bg-emerald-500 text-white' : 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'}`}>
-                        {isStaffEmailVerified ? 'Verified' : 'Verify Email'}
+                        {isStaffEmailVerified ? 'Verified' : 'Verify'}
                       </button>
                     </div>
                     <div className="relative">
@@ -1104,7 +1271,7 @@ const App: React.FC = () => {
                     <select name="staffBranch" required defaultValue={editingSeller?.branchId || config.branches[0]?.id} className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`}>
                        {config.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
-                    <button type="submit" disabled={!isStaffEmailVerified} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{editingSeller ? 'Save Staff Update' : 'Register New Staff'}</button>
+                    <button type="submit" disabled={!isStaffEmailVerified} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{editingSeller ? 'Apply Staff Updates' : 'Add New Staff'}</button>
                     {editingSeller && <button type="button" onClick={() => { setEditingSeller(null); setIsStaffEmailVerified(false); }} className="sm:col-span-2 text-[10px] font-black uppercase text-slate-500 py-2">Stop Editing</button>}
                   </form>
 
@@ -1121,7 +1288,7 @@ const App: React.FC = () => {
                               <button onClick={() => { setEditingSeller(s); setIsStaffEmailVerified(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-600 transition-all shadow-sm">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                               </button>
-                              <button onClick={() => { setConfirmModal({ isOpen: true, title: "Remove Staff?", message: "This person won't be able to log in anymore.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteSeller(s.id); const updated = await db.getSellers(); setConfig({...config, sellers: updated}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Staff deleted", "info"); setIsGlobalLoading(false); } }); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-600 transition-all shadow-sm">
+                              <button onClick={() => { setConfirmModal({ isOpen: true, title: "Delete Staff Member?", message: "This person will lose all system access.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteSeller(s.id); const updated = await db.getSellers(); setConfig({...config, sellers: updated}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Staff deleted", "info"); setIsGlobalLoading(false); } }); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-rose-600 hover:border-rose-600 transition-all shadow-sm">
                                 <ICONS.Trash />
                               </button>
                            </div>
@@ -1130,10 +1297,10 @@ const App: React.FC = () => {
                   </div>
                </div>
 
-               <div className="bg-rose-50 dark:bg-rose-900/10 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 dark:border-rose-900/50 text-center">
-                  <h3 className="text-2xl font-black uppercase text-rose-600 mb-2 italic">DANGER ZONE</h3>
-                  <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">Wipe all stock and sales records for a store</p>
-                  <button onClick={() => setIsWipeModalOpen(true)} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Master Reset a branch</button>
+               <div className="bg-rose-50 dark:bg-rose-900/10 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 dark:border-rose-900/50 text-center text-left">
+                  <h3 className="text-2xl font-black uppercase text-rose-600 mb-2 italic">MASTER RESET</h3>
+                  <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">Perform a clean sweep of branch data</p>
+                  <button onClick={() => setIsWipeModalOpen(true)} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Reset Single Branch</button>
                </div>
             </div>
           )}
@@ -1141,33 +1308,33 @@ const App: React.FC = () => {
           {activeTab === 'Dashboard' && (
             <div className="space-y-6 sm:space-y-10 max-w-7xl mx-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-                <StatCard title="Total Items" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" theme={theme} />
-                <StatCard title="Stock Value" value={`₦${stats.totalValue.toLocaleString()}`} icon={<ICONS.Inventory />} color="blue" theme={theme} />
-                <StatCard title="Low Warning" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" alert={stats.lowStockCount > 0} theme={theme} />
-                <StatCard title="Today's Money" value={`₦${activeBranchTransactions.filter(t => new Date(t.timestamp).toDateString() === new Date().toDateString()).reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="emerald" theme={theme} />
+                <StatCard title="Inventory Size" value={stats.totalItems} icon={<ICONS.Dashboard />} color="slate" theme={theme} />
+                <StatCard title="Current Stock Value" value={`₦${stats.totalValue.toLocaleString()}`} icon={<ICONS.Inventory />} color="blue" theme={theme} />
+                <StatCard title="Restock Warnings" value={stats.lowStockCount} icon={<ICONS.Alert />} color="amber" alert={stats.lowStockCount > 0} theme={theme} />
+                <StatCard title="Total Sales Today" value={`₦${activeBranchTransactions.filter(t => new Date(t.timestamp).toDateString() === new Date().toDateString()).reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="emerald" theme={theme} />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                  <div className={`lg:col-span-1 rounded-[3rem] p-6 sm:p-8 border shadow-sm flex flex-col min-h-[300px] sm:min-h-[400px] transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 italic text-left">Items Finishing</h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-slate-400 mb-6 italic">Low Stock Alert</h3>
                     <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar pr-2">
                        {lowStockItems.length > 0 ? lowStockItems.map(item => (
                          <div key={item.id}>
                             <div className="flex justify-between items-center mb-2">
                                <span className="text-[11px] font-black uppercase truncate max-w-[140px] text-slate-900 dark:text-slate-200">{item.name}</span>
-                               <span className="text-[10px] font-black text-amber-500">{item.quantity} left</span>
+                               <span className="text-[10px] font-black text-amber-500">{item.quantity} units left</span>
                             </div>
                             <div className={`h-1.5 w-full rounded-full overflow-hidden ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-100'}`}>
                                <div className="h-full bg-amber-500 transition-all duration-1000" style={{ width: `${Math.max(10, (item.quantity / (item.minThreshold || 1)) * 100)}%` }}></div>
                             </div>
                          </div>
-                       )) : <p className="text-[10px] font-black uppercase text-slate-300 italic py-20 text-center">Stock looks good!</p>}
+                       )) : <p className="text-[10px] font-black uppercase text-slate-300 italic py-20 text-center">All shelves are sufficiently stocked</p>}
                     </div>
                  </div>
 
                  <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-6 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col min-h-[300px] sm:min-h-[400px]">
                     <div className="relative z-10 h-full flex flex-col">
-                       <h3 className="text-lg font-black text-white uppercase tracking-tight mb-8 italic text-left">To-Do List</h3>
+                       <h3 className="text-lg font-black text-white uppercase tracking-tight mb-8 italic">Operation Tasks</h3>
                        <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 text-slate-200 text-left">
                           {operationTasks.map(task => (
                             <div key={task.id} className={`p-6 rounded-3xl border ${task.type === 'critical' ? 'bg-rose-500/10 border-rose-500/20 text-rose-100' : 'bg-blue-500/10 border-blue-500/20 text-blue-100'}`}>
@@ -1175,7 +1342,7 @@ const App: React.FC = () => {
                                <p className="text-sm font-medium leading-relaxed">{task.desc}</p>
                             </div>
                           ))}
-                          {operationTasks.length === 0 && <p className="text-[10px] font-black uppercase text-slate-600 tracking-[0.4em] text-center mt-20 italic">Nothing to worry about</p>}
+                          {operationTasks.length === 0 && <p className="text-[10px] font-black uppercase text-slate-600 tracking-[0.4em] text-center mt-20 italic">No pending alerts</p>}
                        </div>
                     </div>
                  </div>
@@ -1187,7 +1354,7 @@ const App: React.FC = () => {
             <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
                <div className="relative max-w-2xl mx-auto w-full text-left">
                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                  <input type="text" placeholder="Search for items to sell..." className={`w-full pl-14 sm:pl-16 pr-6 sm:pr-8 py-4 sm:py-5 text-md font-bold border-2 border-transparent rounded-[2rem] sm:rounded-[2.5rem] outline-none shadow-sm transition-all focus:border-blue-600 ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                  <input type="text" placeholder="Scan or search items..." className={`w-full pl-14 sm:pl-16 pr-6 sm:pr-8 py-4 sm:py-5 text-md font-bold border-2 border-transparent rounded-[2rem] sm:rounded-[2.5rem] outline-none shadow-sm transition-all focus:border-blue-600 ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                </div>
                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
                  {filteredProducts.map(p => (
@@ -1198,7 +1365,7 @@ const App: React.FC = () => {
                       </div>
                       <div className="mt-4">
                         <div className={`px-2 py-0.5 rounded-lg text-[8px] font-black w-fit uppercase ${p.quantity <= 0 ? 'bg-rose-100 text-rose-600' : p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
-                          {p.quantity <= 0 ? 'SOLD OUT' : `${p.quantity} Left`}
+                          {p.quantity <= 0 ? 'OUT OF STOCK' : `${p.quantity} Units`}
                         </div>
                       </div>
                    </button>
@@ -1212,19 +1379,19 @@ const App: React.FC = () => {
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                    <div className="relative flex-1 w-full max-w-md text-left">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                      <input type="text" placeholder="Find an item..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                      <input type="text" placeholder="Search inventory..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                    </div>
                    <button onClick={() => { setEditingProduct(null); setIsModalOpen(true); }} className="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Add New Item</button>
                 </div>
                 <div className={`rounded-[2.5rem] border overflow-hidden shadow-sm overflow-x-auto ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                    <table className="w-full text-left min-w-[700px]">
-                      <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Item Name</th><th className="px-10 py-6">Store Price</th><th className="px-10 py-6 text-center">In Stock</th><th className="px-10 py-6 text-right">Actions</th></tr></thead>
+                      <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Product Description</th><th className="px-10 py-6">Unit Price</th><th className="px-10 py-6 text-center">Availability</th><th className="px-10 py-6 text-right">Actions</th></tr></thead>
                       <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800' : 'divide-slate-100'}`}>
                          {filteredProducts.map(p => (
                            <tr key={p.id} className="hover:bg-blue-50/5 transition-all">
                               <td className="px-10 py-6">
                                 <span className="font-black uppercase text-xs block text-slate-900 dark:text-white text-left">{p.name}</span>
-                                <span className="text-[8px] font-bold text-slate-400 tracking-widest mt-1 block text-left">SKU: {p.sku}</span>
+                                <span className="text-[8px] font-bold text-slate-400 tracking-widest mt-1 block text-left">Ref: {p.sku}</span>
                               </td>
                               <td className="px-10 py-6 font-black text-slate-900 dark:text-white text-left">₦{p.price.toLocaleString()}</td>
                               <td className="px-10 py-6 text-center"><span className={`px-3 py-1 rounded-xl text-[9px] font-black ${p.quantity <= 0 ? 'bg-rose-100 text-rose-600' : p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>{p.quantity} Units</span></td>
@@ -1239,33 +1406,32 @@ const App: React.FC = () => {
 
           {activeTab === 'Approvals' && currentUser.role === 'Admin' && (
             <div className="max-w-7xl mx-auto space-y-6">
-              <h3 className="text-xl font-black uppercase italic tracking-tighter dark:text-white text-left">Staff Requests</h3>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4 text-left">Boss, check these updates from your staff</p>
+              <h3 className="text-xl font-black uppercase italic tracking-tighter dark:text-white text-left">Pending Requests</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4 text-left">Check items awaiting approval for store publication.</p>
               {pendingApprovals.length === 0 ? (
-                <div className="py-24 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[3rem] text-slate-300 font-black uppercase text-xs">No requests right now</div>
+                <div className="py-24 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[3rem] text-slate-300 font-black uppercase text-xs">No pending approvals</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {pendingApprovals.map(req => (
                     <div key={req.id} className={`p-8 rounded-[3rem] border transition-all ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
                       <div className="flex justify-between items-start mb-6 text-left">
                         <div>
-                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${req.actionType === 'ADD' ? 'bg-emerald-100 text-emerald-600' : req.actionType === 'EDIT' ? 'bg-blue-100 text-blue-600' : 'bg-rose-100 text-rose-600'}`}>{req.actionType} ITEM</span>
-                          <h4 className="text-lg font-black uppercase mt-2">{req.productData.name || 'Something'}</h4>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">From {req.requestedBy} • {new Date(req.timestamp).toLocaleTimeString()}</p>
+                          <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase ${req.actionType === 'ADD' ? 'bg-emerald-100 text-emerald-600' : req.actionType === 'EDIT' ? 'bg-blue-100 text-blue-600' : 'bg-rose-100 text-rose-600'}`}>{req.actionType}</span>
+                          <h4 className="text-lg font-black uppercase mt-2">{req.productData.name}</h4>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Req By {req.requestedBy} • {new Date(req.timestamp).toLocaleTimeString()}</p>
                         </div>
                       </div>
                       <div className={`p-6 rounded-3xl mb-6 text-xs space-y-3 text-left ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-50'}`}>
-                        {req.actionType !== 'DELETE' && (
+                        {req.actionType !== 'DELETE' ? (
                           <>
-                            <div className="flex justify-between"><span className="text-slate-400">Price:</span><span className="font-black text-blue-600">₦{req.productData.price?.toLocaleString()}</span></div>
-                            <div className="flex justify-between"><span className="text-slate-400">Quantity:</span><span className="font-black">{req.productData.quantity} Units</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Price Point:</span><span className="font-black text-blue-600">₦{req.productData.price?.toLocaleString()}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Stock Count:</span><span className="font-black">{req.productData.quantity} Units</span></div>
                           </>
-                        )}
-                        {req.actionType === 'DELETE' && <p className="text-rose-500 font-bold italic">They want to delete this forever.</p>}
+                        ) : <p className="text-rose-500 font-bold italic">Deletion requested for this item.</p>}
                       </div>
                       <div className="flex gap-4">
-                        <button onClick={() => handleProcessApproval(req, 'DECLINED')} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">No</button>
-                        <button onClick={() => handleProcessApproval(req, 'APPROVED')} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg">Yes, Approve</button>
+                        <button onClick={() => handleProcessApproval(req, 'DECLINED')} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">Decline</button>
+                        <button onClick={() => handleProcessApproval(req, 'APPROVED')} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg">Approve</button>
                       </div>
                     </div>
                   ))}
@@ -1278,28 +1444,28 @@ const App: React.FC = () => {
             <div className="max-w-7xl mx-auto space-y-6">
                <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm text-left">
                   <div className="flex-1 w-full space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Search Receipts</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Receipt Lookup</label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
-                      <input type="text" placeholder="Type Receipt ID..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
+                      <input type="text" placeholder="ID Lookup..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} value={searchTermTransactions} onChange={e => setSearchTermTransactions(e.target.value)} />
                     </div>
                   </div>
                   <div className="w-full md:w-auto space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">From Date</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Date Start</label>
                     <input type="date" value={txStartDate} onChange={e => setTxStartDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                   </div>
                   <div className="w-full md:w-auto space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">To Date</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Date End</label>
                     <input type="date" value={txEndDate} onChange={e => setTxEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                   </div>
                   {(txStartDate || txEndDate || searchTermTransactions) && (
-                    <button onClick={() => { setTxStartDate(''); setTxEndDate(''); setSearchTermTransactions(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all">Reset</button>
+                    <button onClick={() => { setTxStartDate(''); setTxEndDate(''); setSearchTermTransactions(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all">Clear Filters</button>
                   )}
                </div>
 
                <div className={`rounded-[3rem] border overflow-hidden shadow-sm overflow-x-auto ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                   <table className="w-full text-left min-w-[700px]">
-                     <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Receipt #</th><th className="px-10 py-6">Time</th><th className="px-10 py-6">Total Amount</th><th className="px-10 py-6 text-right">Actions</th></tr></thead>
+                     <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-10 py-6">Transaction ID</th><th className="px-10 py-6">Date & Time</th><th className="px-10 py-6">Grand Total</th><th className="px-10 py-6 text-right">Actions</th></tr></thead>
                      <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800' : 'divide-slate-100'}`}>
                         {filteredTransactions.map(t => (
                           <tr key={t.id} className="hover:bg-slate-50/5 transition-all">
@@ -1318,15 +1484,15 @@ const App: React.FC = () => {
           {activeTab === 'Revenue' && currentUser.role === 'Admin' && (
              <div className="max-w-7xl mx-auto space-y-10">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                   <StatCard title="Total Money In" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="blue" theme={theme} />
-                   <StatCard title="What we Spent" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0).toLocaleString()}`} icon={<ICONS.Inventory />} color="amber" theme={theme} />
-                   <StatCard title="Money Made" value={`₦${(filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) - filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0)).toLocaleString()}`} icon={<ICONS.Dashboard />} color="emerald" theme={theme} />
-                   <StatCard title="Profit Percent" value={`${((filteredRevenueTransactions.reduce((acc, t) => acc + (t.total - t.totalCost), 0) / (filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) || 1)) * 100).toFixed(1)}%`} icon={<ICONS.Register />} color="slate" theme={theme} />
+                   <StatCard title="Gross Sales" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="blue" theme={theme} />
+                   <StatCard title="Inventory Expense" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0).toLocaleString()}`} icon={<ICONS.Inventory />} color="amber" theme={theme} />
+                   <StatCard title="Net Earnings" value={`₦${(filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) - filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0)).toLocaleString()}`} icon={<ICONS.Dashboard />} color="emerald" theme={theme} />
+                   <StatCard title="Profit Percentage" value={`${((filteredRevenueTransactions.reduce((acc, t) => acc + (t.total - t.totalCost), 0) / (filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0) || 1)) * 100).toFixed(1)}%`} icon={<ICONS.Register />} color="slate" theme={theme} />
                 </div>
 
                 <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm text-left">
                   <div className="flex-1 w-full space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Filter by Date</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Profit History Search</label>
                     <div className="grid grid-cols-2 gap-4 text-left">
                       <input type="date" value={revStartDate} onChange={e => setRevStartDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                       <input type="date" value={revEndDate} onChange={e => setRevEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
@@ -1335,14 +1501,14 @@ const App: React.FC = () => {
                 </div>
 
                 <div className={`rounded-[3rem] p-8 sm:p-10 border shadow-sm overflow-hidden ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                   <h3 className="text-xl font-black uppercase mb-8 italic tracking-tighter dark:text-white text-left">Profit Log</h3>
+                   <h3 className="text-xl font-black uppercase mb-8 italic tracking-tighter dark:text-white text-left">Earnings Journal</h3>
                    <div className="overflow-x-auto">
                       <table className="w-full text-left min-w-[700px]">
-                         <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-8 py-6">Date & Time</th><th className="px-8 py-6">Total Sale</th><th className="px-8 py-6">Profit</th><th className="px-8 py-6 text-right">Result</th></tr></thead>
+                         <thead className={`border-b ${theme === 'dark' ? 'bg-slate-800/50' : 'bg-slate-50'}`}><tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest"><th className="px-8 py-6">Timestamp</th><th className="px-8 py-6">Transaction Total</th><th className="px-8 py-6">Profit Margin</th><th className="px-8 py-6 text-right">Performance</th></tr></thead>
                          <tbody className={`divide-y ${theme === 'dark' ? 'divide-slate-800 text-white' : 'divide-slate-100'}`}>
                             {filteredRevenueTransactions.map(t => (
                               <tr key={t.id} className="text-xs hover:bg-slate-50/5 transition-all">
-                                 <td className="px-8 py-6 font-bold text-slate-500 text-left">{new Date(t.timestamp).toLocaleDateString()} at {new Date(t.timestamp).toLocaleTimeString()}</td>
+                                 <td className="px-8 py-6 font-bold text-slate-500 text-left">{new Date(t.timestamp).toLocaleDateString()} • {new Date(t.timestamp).toLocaleTimeString()}</td>
                                  <td className="px-8 py-6 font-black text-slate-900 dark:text-white text-left">₦{t.total.toLocaleString()}</td>
                                  <td className="px-8 py-6 font-black text-emerald-600 text-left">₦{(t.total - t.totalCost).toLocaleString()}</td>
                                  <td className="px-8 py-6 text-right"><span className={`px-4 py-2 rounded-xl font-black uppercase text-[9px] ${theme === 'dark' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>{(((t.total - t.totalCost) / (t.total || 1)) * 100).toFixed(1)}% Margin</span></td>
@@ -1360,7 +1526,7 @@ const App: React.FC = () => {
            <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-md">
               <div className={`w-full max-w-2xl h-full sm:h-[90vh] sm:rounded-[4rem] shadow-2xl flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
                  <div className="p-8 sm:p-10 border-b dark:border-slate-800 flex items-center justify-between shrink-0 text-left">
-                    <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight italic leading-none dark:text-white">Shopping Basket</h3>
+                    <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight italic leading-none dark:text-white">Transaction Cart</h3>
                     <button onClick={() => setIsBasketOpen(false)} className={`p-4 rounded-2xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                  </div>
                  <div className="flex-1 p-6 sm:p-10 overflow-y-auto custom-scrollbar space-y-4">
@@ -1388,8 +1554,8 @@ const App: React.FC = () => {
                     ))}
                  </div>
                  <div className={`p-8 sm:p-10 border-t flex flex-col sm:flex-row items-center justify-between shrink-0 gap-8 transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-                    <div className="text-center sm:text-left text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total to Pay</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
-                    <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-12 sm:px-16 py-6 sm:py-8 bg-slate-900 dark:bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-xs sm:text-sm tracking-widest shadow-2xl active:scale-95 disabled:opacity-20 transition-all">Finish & Print Receipt</button>
+                    <div className="text-center sm:text-left text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total Receivable</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
+                    <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-12 sm:px-16 py-6 sm:py-8 bg-slate-900 dark:bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-xs sm:text-sm tracking-widest shadow-2xl active:scale-95 disabled:opacity-20 transition-all">Confirm Order</button>
                  </div>
               </div>
            </div>
@@ -1411,10 +1577,10 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0 text-left"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Grand Total</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span></div>
+              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0 text-left"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Total Due</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span></div>
               <div className="flex flex-col gap-3 print:hidden shrink-0">
-                <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Print Paper Receipt</button>
-                <button onClick={() => setReceiptToShow(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Done</button>
+                <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Print Paper Copy</button>
+                <button onClick={() => setReceiptToShow(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Dismiss</button>
               </div>
             </div>
           </div>
@@ -1447,9 +1613,6 @@ const StatCard = ({ title, value, icon, color, alert, theme }: { title: string, 
   );
 };
 
-const BellIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-);
 const EyeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
 );

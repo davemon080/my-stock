@@ -1,6 +1,6 @@
 
 import { neon } from '@neondatabase/serverless';
-import { Product, Branch, Transaction, Seller, AppConfig, Notification, ApprovalRequest, Admin } from '../types.ts';
+import { Product, Branch, Transaction, Seller, AppConfig, Notification, ApprovalRequest, Admin, UserRole } from '../types.ts';
 
 const DATABASE_URL = "postgresql://neondb_owner:npg_oNL4Ok5GvDie@ep-billowing-hall-adwkuu1o-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require";
 const sql = neon(DATABASE_URL);
@@ -56,6 +56,34 @@ export const db = {
   async getTotalAdminsCount(): Promise<number> {
     const result = await sql`SELECT COUNT(*) as count FROM admins`;
     return parseInt(result[0].count);
+  },
+
+  // Password Reset Logic
+  async setResetToken(email: string, role: UserRole, token: string) {
+    const expiry = new Date(Date.now() + 3600000); // 1 hour expiry
+    if (role === 'Admin') {
+      return sql`UPDATE admins SET reset_token = ${token}, reset_token_expiry = ${expiry} WHERE email = ${email}`;
+    } else {
+      return sql`UPDATE sellers SET reset_token = ${token}, reset_token_expiry = ${expiry} WHERE email = ${email}`;
+    }
+  },
+
+  async validateResetToken(email: string, role: UserRole, token: string): Promise<boolean> {
+    let rows;
+    if (role === 'Admin') {
+      rows = await sql`SELECT * FROM admins WHERE email = ${email} AND reset_token = ${token} AND reset_token_expiry > NOW() LIMIT 1`;
+    } else {
+      rows = await sql`SELECT * FROM sellers WHERE email = ${email} AND reset_token = ${token} AND reset_token_expiry > NOW() LIMIT 1`;
+    }
+    return rows.length > 0;
+  },
+
+  async updatePasswordByToken(email: string, role: UserRole, token: string, newPass: string) {
+    if (role === 'Admin') {
+      return sql`UPDATE admins SET password = ${newPass}, reset_token = NULL, reset_token_expiry = NULL WHERE email = ${email} AND reset_token = ${token}`;
+    } else {
+      return sql`UPDATE sellers SET password = ${newPass}, reset_token = NULL, reset_token_expiry = NULL WHERE email = ${email} AND reset_token = ${token}`;
+    }
   },
 
   // Branch Management

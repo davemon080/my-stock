@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS admins (
     email TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     name TEXT NOT NULL,
+    reset_token TEXT,
+    reset_token_expiry TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -48,7 +50,9 @@ CREATE TABLE IF NOT EXISTS sellers (
     email TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     name TEXT NOT NULL,
-    branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE
+    branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
+    reset_token TEXT,
+    reset_token_expiry TIMESTAMP WITH TIME ZONE
 );
 
 -- 6. Transactions Table
@@ -103,4 +107,10 @@ WHERE NOT EXISTS (SELECT 1 FROM supermarket_config);
 INSERT INTO branches (id, name, location)
 SELECT 'br_main', 'Main Store', 'Headquarters'
 WHERE NOT EXISTS (SELECT 1 FROM branches);
+
+-- Run these if your tables already exist
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS reset_token TEXT;
+ALTER TABLE admins ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP WITH TIME ZONE;
+ALTER TABLE sellers ADD COLUMN IF NOT EXISTS reset_token TEXT;
+ALTER TABLE sellers ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP WITH TIME ZONE;
 ```
