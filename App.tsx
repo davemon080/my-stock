@@ -367,40 +367,28 @@ const App: React.FC = () => {
           setIsGlobalLoading(false);
         }
       } else {
-        if (loginStep === 'credentials') {
-          if (!isValidEmailFormat(normalizedEmail)) {
-            setLoginError('Invalid email address');
-            setIsGlobalLoading(false);
-            return;
-          }
-          const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail && s.password === loginPassword);
-          if (seller) {
-            setLoginStep('verification');
-            showToast("Sent a code to your email (try 1234)", "info");
-          } else {
-            setLoginError('Email or Pin is wrong');
-          }
+        // Direct Seller Login without verification code
+        if (!isValidEmailFormat(normalizedEmail)) {
+          setLoginError('Invalid email address');
           setIsGlobalLoading(false);
-        } else {
-          if (verificationCode === '1234') {
-            const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail);
-            const staffUser = { 
-              role: 'Seller' as UserRole, 
-              name: seller!.name, 
-              email: seller!.email,
-              id: seller!.id,
-              branchId: seller!.branchId 
-            };
-            setCurrentUser(staffUser);
-            setSelectedBranchId(staffUser.branchId);
-            showToast(`Hi ${seller!.name}, you're logged in!`, "success");
-            setLoginStep('credentials');
-            setVerificationCode('');
-          } else {
-            setLoginError('Invalid code');
-          }
-          setIsGlobalLoading(false);
+          return;
         }
+        const seller = config.sellers.find(s => s.email.toLowerCase().trim() === normalizedEmail && s.password === loginPassword);
+        if (seller) {
+          const staffUser = { 
+            role: 'Seller' as UserRole, 
+            name: seller.name, 
+            email: seller.email,
+            id: seller.id,
+            branchId: seller.branchId 
+          };
+          setCurrentUser(staffUser);
+          setSelectedBranchId(staffUser.branchId);
+          showToast(`Hi ${seller.name}, you're logged in!`, "success");
+        } else {
+          setLoginError('Email or Pin is wrong');
+        }
+        setIsGlobalLoading(false);
       }
     } catch (err: any) {
       console.error("Login Error:", err);
@@ -522,6 +510,8 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setLoginStep('credentials');
+    setVerificationCode('');
     showToast("Logged out successfully", "info");
   };
 
@@ -902,20 +892,20 @@ const App: React.FC = () => {
                <button type="button" onClick={() => { setAuthView('login'); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest">Cancel Recovery</button>
             </form>
           ) : (
-            <form onSubmit={handleLogin} className="space-y-6">
+            <form onSubmit={handleLogin} className="space-y-6 text-left">
               {authView === 'register' && (
-                <div className="space-y-2 text-left animate-in slide-in-from-top duration-200">
+                <div className="space-y-2 animate-in slide-in-from-top duration-200">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
                   <input type="text" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginName} onChange={e => setLoginName(e.target.value)} placeholder="Full name..." />
                 </div>
               )}
               
-              <div className="space-y-2 text-left">
+              <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
                 <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="your@email.com" />
               </div>
 
-              <div className="space-y-2 text-left">
+              <div className="space-y-2">
                 <div className="flex justify-between items-center ml-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{loginRole === 'Admin' ? 'Password' : 'Staff Pin'}</label>
                   <button type="button" onClick={() => { setAuthView('forgot-password'); setLoginError(''); }} className="text-[8px] font-black uppercase text-blue-600 hover:text-blue-700 tracking-widest">Forgot Password?</button>
@@ -930,19 +920,19 @@ const App: React.FC = () => {
 
               {authView === 'register' && (
                 <>
-                  <div className="space-y-2 text-left">
+                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirm Password</label>
                     <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
                   </div>
                   {totalAdmins > 0 && (
-                     <div className="space-y-2 text-left animate-in slide-in-from-top duration-300">
+                     <div className="space-y-2 animate-in slide-in-from-top duration-300">
                        <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest ml-1 italic">Register Passcode Required</label>
                        <input type="password" required className="w-full px-6 py-4 bg-rose-50 dark:bg-rose-900/10 dark:border-rose-900/30 border-2 border-rose-100 rounded-2xl focus:border-rose-600 outline-none font-bold" value={registerPasscode} onChange={e => setRegisterPasscode(e.target.value)} placeholder="Contact Lead Admin" />
                      </div>
                   )}
                   {totalAdmins === 0 && (
                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
-                        <p className="text-[9px] font-bold text-blue-600 dark:text-blue-400 leading-relaxed text-left uppercase tracking-wider">First account creation mode. Secure this login.</p>
+                        <p className="text-[9px] font-bold text-blue-600 dark:text-blue-400 leading-relaxed uppercase tracking-wider">First account creation mode. Secure this login.</p>
                      </div>
                   )}
                 </>
@@ -951,11 +941,11 @@ const App: React.FC = () => {
               {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl">{loginError}</p>}
               
               <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95">
-                {loginRole === 'Admin' ? (authView === 'register' ? 'Register Admin' : 'Sign In') : 'Cashier Access'}
+                {loginRole === 'Admin' ? (authView === 'register' ? 'Register Admin' : 'Sign In') : 'Sign In'}
               </button>
 
               {loginRole === 'Admin' && (
-                <button type="button" onClick={() => { setAuthView(authView === 'register' ? 'login' : 'register'); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest">
+                <button type="button" onClick={() => { setAuthView(authView === 'register' ? 'login' : 'register'); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest text-center">
                   {authView === 'register' ? 'Existing Admin? Sign In' : "New Admin? Register"}
                 </button>
               )}
@@ -1070,7 +1060,7 @@ const App: React.FC = () => {
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
           </button>
         </div>
-        <nav className="flex-1 p-6 space-y-2 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 p-6 space-y-2 overflow-y-auto custom-scrollbar text-left">
           {[
             { id: 'Dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' },
             { id: 'Inventory', icon: <ICONS.Inventory />, label: 'Stock Room' },
@@ -1089,7 +1079,7 @@ const App: React.FC = () => {
           ))}
         </nav>
         <div className="p-6 shrink-0 border-t border-white/5">
-           <button onClick={handleLogout} className="w-full py-3 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-500 hover:text-white transition-all">Log Out</button>
+           <button onClick={handleLogout} className="w-full py-3 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-rose-500 hover:text-white transition-all text-center">Log Out</button>
         </div>
       </aside>
 
@@ -1099,7 +1089,7 @@ const App: React.FC = () => {
             <button onClick={() => setIsSidebarOpen(true)} className={`lg:hidden p-2.5 rounded-xl transition-all shrink-0 ${theme === 'dark' ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
             </button>
-            <div className="min-w-0">
+            <div className="min-w-0 text-left">
               <h2 className="text-sm sm:text-xl font-black uppercase tracking-tight leading-none truncate">{activeTab}</h2>
               <p className="hidden md:block text-[9px] font-black text-blue-600 uppercase tracking-widest mt-1 italic truncate">{currentUser.name}'s Session</p>
             </div>
@@ -1155,7 +1145,7 @@ const App: React.FC = () => {
                           <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Store Name</label>
                           <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Store Name" />
                        </div>
-                       <button onClick={async () => { setIsGlobalLoading(true); await db.updateConfig(config.supermarketName, config.logoUrl); await new Promise(r => setTimeout(r, 1200)); showToast("Settings saved!", "success"); setIsGlobalLoading(false); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all mt-4">Save Global Changes</button>
+                       <button onClick={async () => { setIsGlobalLoading(true); await db.updateConfig(config.supermarketName, config.logoUrl); await new Promise(r => setTimeout(r, 1200)); showToast("Settings saved!", "success"); setIsGlobalLoading(false); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all mt-4 text-center">Save Global Changes</button>
                     </div>
                   </div>
                </div>
@@ -1173,7 +1163,7 @@ const App: React.FC = () => {
                              </button>
                            </div>
                         </div>
-                        <button type="submit" className="w-full py-4 bg-slate-900 dark:bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Update My Password</button>
+                        <button type="submit" className="w-full py-4 bg-slate-900 dark:bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all text-center">Update My Password</button>
                      </form>
 
                      <form onSubmit={handleUpdateRegisterPasscode} className="space-y-4 text-left">
@@ -1186,7 +1176,7 @@ const App: React.FC = () => {
                              </button>
                            </div>
                         </div>
-                        <button type="submit" className="w-full py-4 bg-rose-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Set Register Code</button>
+                        <button type="submit" className="w-full py-4 bg-rose-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all text-center">Set Register Code</button>
                      </form>
                   </div>
                </div>
@@ -1215,13 +1205,13 @@ const App: React.FC = () => {
                   }} className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 text-left">
                     <input name="branchName" required defaultValue={editingBranch?.name || ''} placeholder="Store Name" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
                     <input name="branchLoc" required defaultValue={editingBranch?.location || ''} placeholder="Store Address" className={`px-6 py-4 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
-                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95">{editingBranch ? 'Update Store Branch' : 'Create New Branch'}</button>
+                    <button type="submit" className="sm:col-span-2 py-5 bg-slate-900 dark:bg-slate-700 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 text-center">{editingBranch ? 'Update Store Branch' : 'Create New Branch'}</button>
                   </form>
                   <div className="space-y-4">
                     {config.branches.map(b => (
                       <div key={b.id} className={`p-6 rounded-[2rem] border flex items-center justify-between ${theme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
                         <div className="text-left"><p className="font-black uppercase text-xs">{b.name}</p><p className="text-[9px] text-slate-400 font-bold uppercase">{b.location}</p></div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 text-center">
                            <button onClick={() => setEditingBranch(b)} className="p-3 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
                            {config.branches.length > 1 && (
                              <button onClick={() => { setConfirmModal({ isOpen: true, title: "Remove Branch?", message: "Warning: This erases branch stock data.", onConfirm: async () => { setIsGlobalLoading(true); await db.deleteBranch(b.id); const brs = await db.getBranches(); setConfig({...config, branches: brs}); setConfirmModal(null); await new Promise(r => setTimeout(r, 1200)); showToast("Store branch removed", "info"); setIsGlobalLoading(false); } }); }} className="p-3 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button>
@@ -1271,11 +1261,11 @@ const App: React.FC = () => {
                     <select name="staffBranch" required defaultValue={editingSeller?.branchId || config.branches[0]?.id} className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`}>
                        {config.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
-                    <button type="submit" disabled={!isStaffEmailVerified} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{editingSeller ? 'Apply Staff Updates' : 'Add New Staff'}</button>
-                    {editingSeller && <button type="button" onClick={() => { setEditingSeller(null); setIsStaffEmailVerified(false); }} className="sm:col-span-2 text-[10px] font-black uppercase text-slate-500 py-2">Stop Editing</button>}
+                    <button type="submit" disabled={!isStaffEmailVerified} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-center">{editingSeller ? 'Apply Staff Updates' : 'Add New Staff'}</button>
+                    {editingSeller && <button type="button" onClick={() => { setEditingSeller(null); setIsStaffEmailVerified(false); }} className="sm:col-span-2 text-[10px] font-black uppercase text-slate-500 py-2 text-center">Stop Editing</button>}
                   </form>
 
-                  <div className="space-y-4">
+                  <div className="space-y-4 text-left">
                      {config.sellers.map(s => (
                         <div key={s.id} className={`p-6 rounded-[2rem] border flex flex-col sm:flex-row items-center sm:justify-between gap-6 text-center sm:text-left transition-all ${theme === 'dark' ? 'bg-slate-800 border-slate-700 hover:bg-slate-700/50' : 'bg-slate-50 border-slate-100 hover:bg-white'}`}>
                            <div className="min-w-0 flex-1 text-left">
@@ -1284,7 +1274,7 @@ const App: React.FC = () => {
                                 Store: {config.branches.find(b => b.id === s.branchId)?.name || 'N/A'} • {s.email}
                               </p>
                            </div>
-                           <div className="flex items-center gap-3 shrink-0">
+                           <div className="flex items-center gap-3 shrink-0 text-center">
                               <button onClick={() => { setEditingSeller(s); setIsStaffEmailVerified(true); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-400 hover:text-blue-600 hover:border-blue-600 transition-all shadow-sm">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                               </button>
@@ -1300,7 +1290,7 @@ const App: React.FC = () => {
                <div className="bg-rose-50 dark:bg-rose-900/10 rounded-[3rem] p-10 border-2 border-dashed border-rose-200 dark:border-rose-900/50 text-center text-left">
                   <h3 className="text-2xl font-black uppercase text-rose-600 mb-2 italic">MASTER RESET</h3>
                   <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">Perform a clean sweep of branch data</p>
-                  <button onClick={() => setIsWipeModalOpen(true)} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl">Reset Single Branch</button>
+                  <button onClick={() => setIsWipeModalOpen(true)} className="px-12 py-5 bg-rose-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest active:scale-95 shadow-xl text-center">Reset Single Branch</button>
                </div>
             </div>
           )}
@@ -1333,7 +1323,7 @@ const App: React.FC = () => {
                  </div>
 
                  <div className="lg:col-span-2 bg-slate-900 rounded-[3rem] p-6 sm:p-10 shadow-2xl relative overflow-hidden flex flex-col min-h-[300px] sm:min-h-[400px]">
-                    <div className="relative z-10 h-full flex flex-col">
+                    <div className="relative z-10 h-full flex flex-col text-left">
                        <h3 className="text-lg font-black text-white uppercase tracking-tight mb-8 italic">Operation Tasks</h3>
                        <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar pr-2 text-slate-200 text-left">
                           {operationTasks.map(task => (
@@ -1351,7 +1341,7 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Register' && (
-            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8">
+            <div className="max-w-7xl mx-auto space-y-6 sm:space-y-8 text-left">
                <div className="relative max-w-2xl mx-auto w-full text-left">
                   <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
                   <input type="text" placeholder="Scan or search items..." className={`w-full pl-14 sm:pl-16 pr-6 sm:pr-8 py-4 sm:py-5 text-md font-bold border-2 border-transparent rounded-[2rem] sm:rounded-[2.5rem] outline-none shadow-sm transition-all focus:border-blue-600 ${theme === 'dark' ? 'bg-slate-900 text-white' : 'bg-white'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -1375,13 +1365,13 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Inventory' && (
-             <div className="max-w-7xl mx-auto space-y-6">
+             <div className="max-w-7xl mx-auto space-y-6 text-left">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                    <div className="relative flex-1 w-full max-w-md text-left">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><ICONS.Search /></span>
                       <input type="text" placeholder="Search inventory..." className={`w-full pl-12 pr-6 py-3 border-2 rounded-2xl outline-none font-bold shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-100 text-slate-900'}`} value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                    </div>
-                   <button onClick={() => { setEditingProduct(null); setIsModalOpen(true); }} className="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all">Add New Item</button>
+                   <button onClick={() => { setEditingProduct(null); setIsModalOpen(true); }} className="w-full sm:w-auto px-8 py-3 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all text-center">Add New Item</button>
                 </div>
                 <div className={`rounded-[2.5rem] border overflow-hidden shadow-sm overflow-x-auto ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
                    <table className="w-full text-left min-w-[700px]">
@@ -1395,7 +1385,7 @@ const App: React.FC = () => {
                               </td>
                               <td className="px-10 py-6 font-black text-slate-900 dark:text-white text-left">₦{p.price.toLocaleString()}</td>
                               <td className="px-10 py-6 text-center"><span className={`px-3 py-1 rounded-xl text-[9px] font-black ${p.quantity <= 0 ? 'bg-rose-100 text-rose-600' : p.quantity <= p.minThreshold ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'}`}>{p.quantity} Units</span></td>
-                              <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2"><button onClick={() => { setEditingProduct(p); setIsModalOpen(true); }} className="p-2 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button><button onClick={() => deleteProduct(p.id)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button></div></td>
+                              <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2 text-center"><button onClick={() => { setEditingProduct(p); setIsModalOpen(true); }} className="p-2 text-slate-400 hover:text-blue-600 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button><button onClick={() => deleteProduct(p.id)} className="p-2 text-slate-400 hover:text-rose-600 transition-colors"><ICONS.Trash /></button></div></td>
                            </tr>
                          ))}
                       </tbody>
@@ -1405,7 +1395,7 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Approvals' && currentUser.role === 'Admin' && (
-            <div className="max-w-7xl mx-auto space-y-6">
+            <div className="max-w-7xl mx-auto space-y-6 text-left">
               <h3 className="text-xl font-black uppercase italic tracking-tighter dark:text-white text-left">Pending Requests</h3>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4 text-left">Check items awaiting approval for store publication.</p>
               {pendingApprovals.length === 0 ? (
@@ -1429,7 +1419,7 @@ const App: React.FC = () => {
                           </>
                         ) : <p className="text-rose-500 font-bold italic">Deletion requested for this item.</p>}
                       </div>
-                      <div className="flex gap-4">
+                      <div className="flex gap-4 text-center">
                         <button onClick={() => handleProcessApproval(req, 'DECLINED')} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">Decline</button>
                         <button onClick={() => handleProcessApproval(req, 'APPROVED')} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg">Approve</button>
                       </div>
@@ -1441,7 +1431,7 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Transactions' && (
-            <div className="max-w-7xl mx-auto space-y-6">
+            <div className="max-w-7xl mx-auto space-y-6 text-left">
                <div className="flex flex-col md:flex-row items-end gap-4 bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm text-left">
                   <div className="flex-1 w-full space-y-2">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Receipt Lookup</label>
@@ -1459,7 +1449,7 @@ const App: React.FC = () => {
                     <input type="date" value={txEndDate} onChange={e => setTxEndDate(e.target.value)} className={`w-full px-4 py-3 border-2 rounded-2xl outline-none font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100 text-slate-900'}`} />
                   </div>
                   {(txStartDate || txEndDate || searchTermTransactions) && (
-                    <button onClick={() => { setTxStartDate(''); setTxEndDate(''); setSearchTermTransactions(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all">Clear Filters</button>
+                    <button onClick={() => { setTxStartDate(''); setTxEndDate(''); setSearchTermTransactions(''); }} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-2xl transition-all text-center">Clear Filters</button>
                   )}
                </div>
 
@@ -1472,7 +1462,7 @@ const App: React.FC = () => {
                              <td className="px-10 py-6 font-black text-xs text-slate-900 dark:text-white text-left">#{t.id}</td>
                              <td className="px-10 py-6 text-xs text-slate-500 font-bold text-left">{new Date(t.timestamp).toLocaleString()}</td>
                              <td className="px-10 py-6 font-black text-blue-600 text-left">₦{t.total.toLocaleString()}</td>
-                             <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2"><button onClick={() => setReceiptToShow(t)} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-blue-600 hover:text-white transition-all"><EyeIcon /></button><button onClick={() => { setReceiptToShow(t); setTimeout(() => window.print(), 200); }} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-emerald-600 hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg></button></div></td>
+                             <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2 text-center"><button onClick={() => setReceiptToShow(t)} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-blue-600 hover:text-white transition-all"><EyeIcon /></button><button onClick={() => { setReceiptToShow(t); setTimeout(() => window.print(), 200); }} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-emerald-600 hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg></button></div></td>
                           </tr>
                         ))}
                      </tbody>
@@ -1482,7 +1472,7 @@ const App: React.FC = () => {
           )}
 
           {activeTab === 'Revenue' && currentUser.role === 'Admin' && (
-             <div className="max-w-7xl mx-auto space-y-10">
+             <div className="max-w-7xl mx-auto space-y-10 text-left">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                    <StatCard title="Gross Sales" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.total, 0).toLocaleString()}`} icon={<ICONS.Revenue />} color="blue" theme={theme} />
                    <StatCard title="Inventory Expense" value={`₦${filteredRevenueTransactions.reduce((acc, t) => acc + t.totalCost, 0).toLocaleString()}`} icon={<ICONS.Inventory />} color="amber" theme={theme} />
@@ -1526,7 +1516,7 @@ const App: React.FC = () => {
            <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-md">
               <div className={`w-full max-w-2xl h-full sm:h-[90vh] sm:rounded-[4rem] shadow-2xl flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-slate-900' : 'bg-white'}`}>
                  <div className="p-8 sm:p-10 border-b dark:border-slate-800 flex items-center justify-between shrink-0 text-left">
-                    <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight italic leading-none dark:text-white">Transaction Cart</h3>
+                    <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight italic leading-none dark:text-white text-left">Transaction Cart</h3>
                     <button onClick={() => setIsBasketOpen(false)} className={`p-4 rounded-2xl transition-colors ${theme === 'dark' ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
                  </div>
                  <div className="flex-1 p-6 sm:p-10 overflow-y-auto custom-scrollbar space-y-4">
@@ -1536,7 +1526,7 @@ const App: React.FC = () => {
                             <p className="text-lg sm:text-xl font-black uppercase truncate dark:text-white">{item.name}</p>
                             <p className="text-[10px] font-bold text-slate-400 tracking-widest mt-1 uppercase">Price: ₦{item.price.toLocaleString()}</p>
                          </div>
-                         <div className="flex items-center gap-4 sm:gap-6">
+                         <div className="flex items-center gap-4 sm:gap-6 text-center">
                             <div className={`flex items-center gap-2.5 p-1 rounded-2xl border ${theme === 'dark' ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-100'}`}>
                                <button onClick={() => handleCartQuantityChange(item.id, (item.cartQuantity - 1).toString())} className="w-10 h-10 rounded-xl font-black text-lg">-</button>
                                <input 
@@ -1548,14 +1538,14 @@ const App: React.FC = () => {
                                <button onClick={() => handleCartQuantityChange(item.id, (item.cartQuantity + 1).toString())} className="w-10 h-10 rounded-xl font-black text-lg">+</button>
                             </div>
                             <span className="font-black text-xl sm:text-2xl min-w-[100px] sm:min-w-[120px] text-right text-blue-600">₦{(item.price * item.cartQuantity).toLocaleString()}</span>
-                            <button onClick={() => removeFromCart(item.id)} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl transition-all"><ICONS.Trash /></button>
+                            <button onClick={() => removeFromCart(item.id)} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl transition-all text-center"><ICONS.Trash /></button>
                          </div>
                       </div>
                     ))}
                  </div>
                  <div className={`p-8 sm:p-10 border-t flex flex-col sm:flex-row items-center justify-between shrink-0 gap-8 transition-colors ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
                     <div className="text-center sm:text-left text-left"><p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-1 italic">Total Receivable</p><p className="text-4xl sm:text-6xl font-black text-blue-600 tracking-tighter leading-none">₦{cart.reduce((a, i) => a + (i.price * i.cartQuantity), 0).toLocaleString()}</p></div>
-                    <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-12 sm:px-16 py-6 sm:py-8 bg-slate-900 dark:bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-xs sm:text-sm tracking-widest shadow-2xl active:scale-95 disabled:opacity-20 transition-all">Confirm Order</button>
+                    <button onClick={completeCheckout} disabled={cart.length === 0} className="w-full sm:w-auto px-12 sm:px-16 py-6 sm:py-8 bg-slate-900 dark:bg-blue-600 text-white rounded-[2rem] sm:rounded-[2.5rem] font-black uppercase text-xs sm:text-sm tracking-widest shadow-2xl active:scale-95 disabled:opacity-20 transition-all text-center">Confirm Order</button>
                  </div>
               </div>
            </div>
@@ -1563,13 +1553,13 @@ const App: React.FC = () => {
 
         {receiptToShow && (
           <div className="fixed inset-0 z-[140] flex items-center justify-center p-0 sm:p-4 bg-slate-950/90 backdrop-blur-xl print-receipt-overlay">
-            <div className="w-full max-sm h-full sm:h-auto bg-white rounded-none sm:rounded-[3rem] p-8 sm:p-10 shadow-2xl flex flex-col print-receipt-card relative overflow-y-auto text-slate-900">
+            <div className="w-full max-sm h-full sm:h-auto bg-white rounded-none sm:rounded-[3rem] p-8 sm:p-10 shadow-2xl flex flex-col print-receipt-card relative overflow-y-auto text-slate-900 text-left">
               <div className="text-center mb-8 border-b border-slate-100 pb-8 shrink-0">
                 <h3 className="text-2xl sm:text-3xl font-black uppercase tracking-tight italic leading-none">{config.supermarketName}</h3>
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-2">{activeBranch?.name}</p>
-                <div className="mt-4 space-y-1"><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Receipt ID: {receiptToShow.id}</p><p className="text-[9px] font-black text-slate-400 uppercase italic">{new Date(receiptToShow.timestamp).toLocaleString()}</p></div>
+                <div className="mt-4 space-y-1"><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest text-center">Receipt ID: {receiptToShow.id}</p><p className="text-[9px] font-black text-slate-400 uppercase italic text-center">{new Date(receiptToShow.timestamp).toLocaleString()}</p></div>
               </div>
-              <div className="space-y-4 mb-8 overflow-y-auto custom-scrollbar pr-2 flex-1 sm:flex-none">
+              <div className="space-y-4 mb-8 overflow-y-auto custom-scrollbar pr-2 flex-1 sm:flex-none text-left">
                 {receiptToShow.items.map((item, idx) => (
                   <div key={idx} className="flex flex-col text-[10px] font-bold text-slate-700">
                     <div className="flex justify-between items-start text-left"><span className="uppercase leading-tight pr-4">{item.name}</span><span className="font-black text-slate-900 shrink-0">₦{(item.price * item.quantity).toLocaleString()}</span></div>
@@ -1577,10 +1567,10 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0 text-left"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Total Due</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter">₦{receiptToShow.total.toLocaleString()}</span></div>
-              <div className="flex flex-col gap-3 print:hidden shrink-0">
-                <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg">Print Paper Copy</button>
-                <button onClick={() => setReceiptToShow(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all">Dismiss</button>
+              <div className="border-t-2 border-dashed border-slate-200 pt-6 mb-8 flex justify-between items-center shrink-0 text-left"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic text-left">Total Due</span><span className="text-3xl sm:text-4xl font-black text-blue-600 tracking-tighter text-right">₦{receiptToShow.total.toLocaleString()}</span></div>
+              <div className="flex flex-col gap-3 print:hidden shrink-0 text-center">
+                <button onClick={() => window.print()} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg text-center">Print Paper Copy</button>
+                <button onClick={() => setReceiptToShow(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all text-center">Dismiss</button>
               </div>
             </div>
           </div>
@@ -1605,10 +1595,10 @@ const StatCard = ({ title, value, icon, color, alert, theme }: { title: string, 
   return (
     <div className={`p-8 border-2 rounded-[3rem] transition-all flex flex-col justify-between text-left ${alert ? 'border-rose-100 dark:border-rose-900/50 shadow-xl shadow-rose-600/10' : theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-50 shadow-sm'}`}>
       <div className="flex items-center justify-between mb-8">
-        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] truncate italic">{title}</span>
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] truncate italic text-left">{title}</span>
         <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-slate-800' : 'bg-slate-50'} ${colorMap[color as keyof typeof colorMap]}`}>{icon}</div>
       </div>
-      <div><div className={`text-2xl sm:text-4xl font-black tracking-tighter truncate leading-none ${alert ? 'text-rose-600' : colorMap[color as keyof typeof colorMap]}`}>{value}</div></div>
+      <div><div className={`text-2xl sm:text-4xl font-black tracking-tighter truncate leading-none text-left ${alert ? 'text-rose-600' : colorMap[color as keyof typeof colorMap]}`}>{value}</div></div>
     </div>
   );
 };
