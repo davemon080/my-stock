@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Product, UserRole, InventoryStats, Transaction, AppConfig, Seller, Branch, Notification, ApprovalRequest } from './types.ts';
+import { Product, UserRole, InventoryStats, Transaction, AppConfig, Seller, Branch, Notification, ApprovalRequest, Admin } from './types.ts';
 import { ICONS } from './constants.tsx';
 import Fuse from 'fuse.js';
 import ProductModal from './components/ProductModal.tsx';
@@ -33,17 +33,21 @@ const App: React.FC = () => {
     return (saved as 'light' | 'dark') || 'light';
   });
 
-  const [currentUser, setCurrentUser] = useState<{ role: UserRole; name: string; branchId: string } | null>(() => {
+  const [currentUser, setCurrentUser] = useState<{ role: UserRole; name: string; email: string; branchId: string; id: string } | null>(() => {
     const savedSession = localStorage.getItem('supermart_session');
     return savedSession ? JSON.parse(savedSession) : null;
   });
 
   const [loginRole, setLoginRole] = useState<UserRole>('Seller');
+  const [isRegisteringAdmin, setIsRegisteringAdmin] = useState(false);
+  const [loginName, setLoginName] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loginStep, setLoginStep] = useState<'credentials' | 'verification'>('credentials');
   const [verificationCode, setVerificationCode] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'Dashboard' | 'Inventory' | 'Register' | 'Transactions' | 'Revenue' | 'Settings' | 'Approvals'>('Dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -57,7 +61,6 @@ const App: React.FC = () => {
   const [config, setConfig] = useState<AppConfig>({
     supermarketName: 'MY STORE',
     logoUrl: '',
-    adminPassword: 'admin',
     sellers: [],
     branches: []
   });
@@ -75,7 +78,11 @@ const App: React.FC = () => {
   const [editingSeller, setEditingSeller] = useState<Seller | null>(null);
   const [isStaffEmailVerified, setIsStaffEmailVerified] = useState(false);
   const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
-  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  
+  // New Settings States
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [showNewAdminPassword, setShowNewAdminPassword] = useState(false);
+  const [showStaffPinInSettings, setShowStaffPinInSettings] = useState(false);
 
   const [branchCarts, setBranchCarts] = useState<Record<string, CartItem[]>>(() => {
     const saved = localStorage.getItem('supermart_carts');
@@ -270,15 +277,53 @@ const App: React.FC = () => {
     await new Promise(r => setTimeout(r, 1000));
 
     if (loginRole === 'Admin') {
-      if (loginPassword === config.adminPassword) {
-        const adminUser = { role: 'Admin' as UserRole, name: 'Shop Boss', branchId: config.branches[0]?.id || '' };
-        setCurrentUser(adminUser);
-        setSelectedBranchId(adminUser.branchId);
-        showToast(`Welcome back, Boss!`, "success");
+      if (isRegisteringAdmin) {
+        if (loginPassword !== confirmPassword) {
+          setLoginError('Passwords do not match');
+          setIsGlobalLoading(false);
+          return;
+        }
+        if (!isValidEmailFormat(loginEmail)) {
+          setLoginError('Invalid email format');
+          setIsGlobalLoading(false);
+          return;
+        }
+        const existing = await db.getAdminByEmail(loginEmail);
+        if (existing) {
+          setLoginError('Email already registered');
+          setIsGlobalLoading(false);
+          return;
+        }
+
+        const newAdmin: Admin = {
+          id: Math.random().toString(36).substr(2, 9),
+          name: loginName,
+          email: loginEmail,
+          password: loginPassword,
+          createdAt: new Date().toISOString()
+        };
+        await db.registerAdmin(newAdmin);
+        showToast("Registration successful! Please log in.", "success");
+        setIsRegisteringAdmin(false);
+        setIsGlobalLoading(false);
       } else {
-        setLoginError('Password is wrong');
+        const admin = await db.getAdminByEmail(loginEmail);
+        if (admin && admin.password === loginPassword) {
+          const adminUser = { 
+            role: 'Admin' as UserRole, 
+            name: admin.name, 
+            email: admin.email,
+            id: admin.id,
+            branchId: config.branches[0]?.id || '' 
+          };
+          setCurrentUser(adminUser);
+          setSelectedBranchId(adminUser.branchId);
+          showToast(`Welcome back, Boss!`, "success");
+        } else {
+          setLoginError('Invalid Email or Password');
+        }
+        setIsGlobalLoading(false);
       }
-      setIsGlobalLoading(false);
     } else {
       if (loginStep === 'credentials') {
         if (!isValidEmailFormat(loginEmail)) {
@@ -297,7 +342,13 @@ const App: React.FC = () => {
       } else {
         if (verificationCode === '1234') {
           const seller = config.sellers.find(s => s.email === loginEmail);
-          const staffUser = { role: 'Seller' as UserRole, name: seller!.name, branchId: seller!.branchId };
+          const staffUser = { 
+            role: 'Seller' as UserRole, 
+            name: seller!.name, 
+            email: seller!.email,
+            id: seller!.id,
+            branchId: seller!.branchId 
+          };
           setCurrentUser(staffUser);
           setSelectedBranchId(staffUser.branchId);
           showToast(`Hi ${seller!.name}, you're logged in!`, "success");
@@ -591,6 +642,25 @@ const App: React.FC = () => {
     setIsVerifyingEmail(false);
   };
 
+  const handleAdminPasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAdminPassword || newAdminPassword.length < 4) {
+      showToast("Password too short!", "error");
+      return;
+    }
+    setIsGlobalLoading(true);
+    try {
+      await db.updateAdminPassword(currentUser!.id, newAdminPassword);
+      await new Promise(r => setTimeout(r, 1200));
+      showToast("Admin password updated!", "success");
+      setNewAdminPassword('');
+    } catch (err) {
+      showToast("Failed to update password", "error");
+    } finally {
+      setIsGlobalLoading(false);
+    }
+  };
+
   const LoadingOverlay = ({ message = "Just a second..." }: { message?: string }) => (
     <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
       <div className="w-16 h-16 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin"></div>
@@ -601,7 +671,7 @@ const App: React.FC = () => {
   if (!currentUser) {
     return (
       <div className={`min-h-screen flex items-center justify-center p-6 transition-colors duration-300 ${theme === 'dark' ? 'bg-slate-950' : 'bg-slate-50'}`}>
-        {isGlobalLoading && <LoadingOverlay message="Logging you in..." />}
+        {isGlobalLoading && <LoadingOverlay message={isRegisteringAdmin ? "Creating your account..." : "Checking credentials..."} />}
         <div className={`w-full max-w-md rounded-[3rem] p-10 shadow-2xl transition-all ${theme === 'dark' ? 'bg-slate-900 border border-slate-800' : 'bg-white'}`}>
           <div className="text-center mb-10">
             {config.logoUrl ? (
@@ -610,48 +680,59 @@ const App: React.FC = () => {
               <div className="w-20 h-20 bg-blue-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-white shadow-xl"><ICONS.Inventory /></div>
             )}
             <h1 className={`text-3xl font-black tracking-tight uppercase leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{config.supermarketName}</h1>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 italic">Staff Login Area</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-4 italic">Staff Access Portal</p>
           </div>
           
-          {loginStep === 'credentials' ? (
-            <>
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl mb-8">
-                {(['Seller', 'Admin'] as UserRole[]).map(r => (
-                  <button key={r} onClick={() => { setLoginRole(r); setLoginError(''); }} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${loginRole === r ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-md' : 'text-slate-400'}`}>
-                    {r === 'Seller' ? 'Cashier' : 'Boss (Admin)'}
-                  </button>
-                ))}
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl mb-8">
+            {(['Seller', 'Admin'] as UserRole[]).map(r => (
+              <button key={r} onClick={() => { setLoginRole(r); setLoginError(''); setIsRegisteringAdmin(false); }} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${loginRole === r ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-md' : 'text-slate-400'}`}>
+                {r === 'Seller' ? 'Cashier' : 'Boss (Admin)'}
+              </button>
+            ))}
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-6">
+            {loginRole === 'Admin' && isRegisteringAdmin && (
+              <div className="space-y-2 text-left">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
+                <input type="text" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginName} onChange={e => setLoginName(e.target.value)} placeholder="e.g. John Doe" />
               </div>
-              <form onSubmit={handleLogin} className="space-y-6">
-                {loginRole === 'Seller' && (
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
-                    <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} />
-                  </div>
-                )}
-                <div className="space-y-2 text-left">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{loginRole === 'Admin' ? 'Admin Password' : 'Staff Pin'}</label>
-                  <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
-                </div>
-                {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
-                <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all">Start Work</button>
-              </form>
-            </>
-          ) : (
-            <form onSubmit={handleLogin} className="space-y-6">
-              <div className="text-center mb-6">
-                <p className="text-xs font-bold text-slate-500">We sent a secret code to</p>
-                <p className="text-xs font-black text-blue-600">{loginEmail}</p>
+            )}
+            
+            <div className="space-y-2 text-left">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Email Address</label>
+              <input type="email" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="me@example.com" />
+            </div>
+
+            <div className="space-y-2 text-left">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">{loginRole === 'Admin' ? 'Password' : 'Staff Pin'}</label>
+              <div className="relative">
+                <input type={showLoginPassword ? "text" : "password"} required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold pr-12" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
+                <button type="button" onClick={() => setShowLoginPassword(!showLoginPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {showLoginPassword ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
               </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">4-Digit Code</label>
-                <input type="text" maxLength={4} required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold text-center text-2xl tracking-[1em]" value={verificationCode} onChange={e => setVerificationCode(e.target.value)} />
+            </div>
+
+            {loginRole === 'Admin' && isRegisteringAdmin && (
+              <div className="space-y-2 text-left">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Confirm Password</label>
+                <input type="password" required className="w-full px-6 py-4 bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-white border-2 border-slate-100 rounded-2xl focus:border-blue-600 outline-none font-bold" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} />
               </div>
-              {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
-              <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all">Verify & Enter</button>
-              <button type="button" onClick={() => setLoginStep('credentials')} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 transition-colors">Go Back</button>
-            </form>
-          )}
+            )}
+
+            {loginError && <p className="text-rose-500 text-[10px] font-black uppercase text-center">{loginError}</p>}
+            
+            <button type="submit" className="w-full py-5 bg-blue-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-xl shadow-blue-600/30 hover:bg-blue-700 transition-all active:scale-95">
+              {loginRole === 'Admin' ? (isRegisteringAdmin ? 'Create Account' : 'Sign In') : 'Proceed'}
+            </button>
+
+            {loginRole === 'Admin' && (
+              <button type="button" onClick={() => { setIsRegisteringAdmin(!isRegisteringAdmin); setLoginError(''); }} className="w-full text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest">
+                {isRegisteringAdmin ? 'Already have an account? Sign In' : "Don't have an account? Register"}
+              </button>
+            )}
+          </form>
         </div>
       </div>
     );
@@ -689,7 +770,7 @@ const App: React.FC = () => {
                <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                   {visibleNotifications.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-20 text-slate-300 opacity-20">
-                       <div className="scale-150 mb-6"><ICONS.Bell /></div>
+                       <div className="scale-150 mb-6"><BellIcon /></div>
                        <p className="text-[10px] font-black uppercase tracking-widest mt-4">Nothing happened yet</p>
                     </div>
                   ) : visibleNotifications.map(n => (
@@ -845,22 +926,30 @@ const App: React.FC = () => {
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
-                       <div className="space-y-1">
+                       <div className="space-y-1 sm:col-span-2">
                           <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Store Name</label>
                           <input value={config.supermarketName} onChange={e => setConfig({...config, supermarketName: e.target.value})} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Store Name" />
                        </div>
-                       <div className="space-y-1">
-                          <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Admin Password</label>
-                          <div className="relative">
-                            <input type={showAdminPassword ? "text" : "password"} value={config.adminPassword} onChange={e => setConfig({...config, adminPassword: e.target.value})} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Admin Password" />
-                            <button type="button" onClick={() => setShowAdminPassword(!showAdminPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                               {showAdminPassword ? <EyeOffIcon /> : <EyeIcon />}
-                            </button>
-                          </div>
-                       </div>
-                       <button onClick={async () => { setIsGlobalLoading(true); await db.updateConfig(config.supermarketName, config.logoUrl, config.adminPassword); await new Promise(r => setTimeout(r, 1200)); showToast("Settings saved!", "success"); setIsGlobalLoading(false); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all mt-4">Save All</button>
+                       <button onClick={async () => { setIsGlobalLoading(true); await db.updateConfig(config.supermarketName, config.logoUrl); await new Promise(r => setTimeout(r, 1200)); showToast("Settings saved!", "success"); setIsGlobalLoading(false); }} className="sm:col-span-2 py-5 bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all mt-4">Save Global Changes</button>
                     </div>
                   </div>
+               </div>
+
+               {/* Admin Password Change Section */}
+               <div className={`rounded-[3rem] p-8 border shadow-sm ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                  <h3 className="text-xl font-black mb-8 uppercase tracking-tight text-slate-400 italic text-left">Admin Security</h3>
+                  <form onSubmit={handleAdminPasswordChange} className="space-y-4 text-left">
+                     <div className="space-y-1">
+                        <label className="text-[10px] font-black uppercase text-slate-400 ml-1">New Admin Password</label>
+                        <div className="relative">
+                          <input type={showNewAdminPassword ? "text" : "password"} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className={`w-full px-6 py-4 border-2 rounded-2xl font-bold outline-none focus:border-blue-600 transition-all text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-100'}`} placeholder="Enter new password" />
+                          <button type="button" onClick={() => setShowNewAdminPassword(!showNewAdminPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                             {showNewAdminPassword ? <EyeOffIcon /> : <EyeIcon />}
+                          </button>
+                        </div>
+                     </div>
+                     <button type="submit" className="w-full py-5 bg-slate-900 dark:bg-blue-600 text-white rounded-3xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">Update My Password</button>
+                  </form>
                </div>
 
                {/* Store Branches Section */}
@@ -936,7 +1025,12 @@ const App: React.FC = () => {
                         {isStaffEmailVerified ? 'Verified' : 'Verify Email'}
                       </button>
                     </div>
-                    <input name="staffPin" required defaultValue={editingSeller?.password || ''} placeholder="Login Pin" className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                    <div className="relative">
+                      <input name="staffPin" required type={showStaffPinInSettings ? "text" : "password"} defaultValue={editingSeller?.password || ''} placeholder="Login Pin" className={`w-full px-6 py-4 border-2 rounded-2xl font-bold text-sm pr-12 ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`} />
+                      <button type="button" onClick={() => setShowStaffPinInSettings(!showStaffPinInSettings)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                         {showStaffPinInSettings ? <EyeOffIcon /> : <EyeIcon />}
+                      </button>
+                    </div>
                     <select name="staffBranch" required defaultValue={editingSeller?.branchId || config.branches[0]?.id} className={`px-6 py-4 border-2 rounded-2xl font-bold text-sm ${theme === 'dark' ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50'}`}>
                        {config.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
@@ -975,7 +1069,6 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Rest of the Tabs (Dashboard, Inventory, etc.) */}
           {activeTab === 'Dashboard' && (
             <div className="space-y-6 sm:space-y-10 max-w-7xl mx-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
@@ -1144,7 +1237,7 @@ const App: React.FC = () => {
                              <td className="px-10 py-6 font-black text-xs text-slate-900 dark:text-white">#{t.id}</td>
                              <td className="px-10 py-6 text-xs text-slate-500 font-bold">{new Date(t.timestamp).toLocaleString()}</td>
                              <td className="px-10 py-6 font-black text-blue-600">₦{t.total.toLocaleString()}</td>
-                             <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2"><button onClick={() => setReceiptToShow(t)} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-blue-600 hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button><button onClick={() => { setReceiptToShow(t); setTimeout(() => window.print(), 200); }} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-emerald-600 hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg></button></div></td>
+                             <td className="px-10 py-6 text-right"><div className="flex justify-end gap-2"><button onClick={() => setReceiptToShow(t)} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-blue-600 hover:text-white transition-all"><EyeIcon /></button><button onClick={() => { setReceiptToShow(t); setTimeout(() => window.print(), 200); }} className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-emerald-600 hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg></button></div></td>
                           </tr>
                         ))}
                      </tbody>
@@ -1261,7 +1354,6 @@ const App: React.FC = () => {
 
       <ProductModal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setEditingProduct(null); }} onSave={handleSaveProduct} initialData={editingProduct} theme={theme} />
       
-      {/* Toasts list */}
       <div className="fixed bottom-10 right-10 z-[200] space-y-4 pointer-events-none">
          {toasts.map(t => (
            <div key={t.id} className={`p-4 rounded-2xl shadow-2xl border text-xs font-black uppercase tracking-widest pointer-events-auto animate-in slide-in-from-right duration-300 ${t.type === 'success' ? 'bg-emerald-600 text-white border-emerald-500' : t.type === 'error' ? 'bg-rose-600 text-white border-rose-500' : 'bg-blue-600 text-white border-blue-500'}`}>
@@ -1286,7 +1378,6 @@ const StatCard = ({ title, value, icon, color, alert, theme }: { title: string, 
   );
 };
 
-// Icons helper
 const BellIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
 );

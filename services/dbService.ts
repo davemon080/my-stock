@@ -1,6 +1,6 @@
 
 import { neon } from '@neondatabase/serverless';
-import { Product, Branch, Transaction, Seller, AppConfig, Notification, ApprovalRequest } from '../types.ts';
+import { Product, Branch, Transaction, Seller, AppConfig, Notification, ApprovalRequest, Admin } from '../types.ts';
 
 const DATABASE_URL = "postgresql://neondb_owner:npg_oNL4Ok5GvDie@ep-billowing-hall-adwkuu1o-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require";
 const sql = neon(DATABASE_URL);
@@ -10,18 +10,47 @@ export const db = {
   async getConfig(): Promise<Partial<AppConfig>> {
     const result = await sql`SELECT * FROM supermarket_config LIMIT 1`;
     if (result.length === 0) {
-      await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('MY STORE', '', 'admin')`;
-      return { supermarketName: 'MY STORE', logoUrl: '', adminPassword: 'admin' };
+      await sql`INSERT INTO supermarket_config (name, logo_url) VALUES ('MY STORE', '')`;
+      return { supermarketName: 'MY STORE', logoUrl: '' };
     }
     return {
       supermarketName: result[0].name,
-      logoUrl: result[0].logo_url,
-      adminPassword: result[0].admin_password
+      logoUrl: result[0].logo_url
     };
   },
 
-  async updateConfig(name: string, logo: string, adminPass: string) {
-    return sql`UPDATE supermarket_config SET name = ${name}, logo_url = ${logo}, admin_password = ${adminPass}`;
+  async updateConfig(name: string, logo: string) {
+    return sql`UPDATE supermarket_config SET name = ${name}, logo_url = ${logo}`;
+  },
+
+  // Admin Management
+  async getAdminByEmail(email: string): Promise<Admin | null> {
+    const rows = await sql`SELECT * FROM admins WHERE email = ${email} LIMIT 1`;
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      email: r.email,
+      password: r.password,
+      name: r.name,
+      createdAt: r.created_at
+    };
+  },
+
+  async registerAdmin(admin: Admin) {
+    return sql`
+      INSERT INTO admins (id, email, password, name, created_at)
+      VALUES (${admin.id}, ${admin.email}, ${admin.password}, ${admin.name}, ${admin.createdAt})
+    `;
+  },
+
+  async updateAdminPassword(adminId: string, newPass: string) {
+    return sql`UPDATE admins SET password = ${newPass} WHERE id = ${adminId}`;
+  },
+
+  async getTotalAdminsCount(): Promise<number> {
+    const result = await sql`SELECT COUNT(*) as count FROM admins`;
+    return parseInt(result[0].count);
   },
 
   // Branch Management
@@ -67,7 +96,6 @@ export const db = {
   async upsertProduct(product: Product, branchId: string) {
     return sql`
       INSERT INTO products (id, branch_id, sku, name, price, cost_price, quantity, min_threshold, last_updated)
-      /* FIX: Accessing minThreshold property instead of incorrect min_threshold */
       VALUES (${product.id}, ${branchId}, ${product.sku}, ${product.name}, ${product.price}, ${product.costPrice}, ${product.quantity}, ${product.minThreshold}, ${product.lastUpdated})
       ON CONFLICT (id) DO UPDATE SET
         name = EXCLUDED.name,
@@ -146,7 +174,7 @@ export const db = {
     }
   },
 
-  // Approvals (New Logic)
+  // Approvals
   async getApprovals(branchId: string): Promise<ApprovalRequest[]> {
     const rows = await sql`SELECT * FROM approvals WHERE branch_id = ${branchId} AND status = 'PENDING' ORDER BY timestamp DESC`;
     return rows.map(r => ({
@@ -195,21 +223,18 @@ export const db = {
 
   // Wipe All Data
   async wipeAllData() {
-    await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config, notifications, approvals RESTART IDENTITY CASCADE`;
-    await sql`INSERT INTO supermarket_config (name, logo_url, admin_password) VALUES ('MY STORE', '', 'admin')`;
+    await sql`TRUNCATE TABLE transaction_items, transactions, products, sellers, branches, supermarket_config, notifications, approvals, admins RESTART IDENTITY CASCADE`;
+    await sql`INSERT INTO supermarket_config (name, logo_url) VALUES ('MY STORE', '')`;
     await sql`INSERT INTO branches (id, name, location) VALUES ('br_main', 'Main Store', 'Headquarters')`;
   },
 
   // Scoped Wipe
   async wipeBranchData(branchId: string) {
-    // We delete data tied to the branch, but keep the branch record itself
     await sql`DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE branch_id = ${branchId})`;
     await sql`DELETE FROM transactions WHERE branch_id = ${branchId}`;
     await sql`DELETE FROM products WHERE branch_id = ${branchId}`;
     await sql`DELETE FROM notifications WHERE branch_id = ${branchId}`;
     await sql`DELETE FROM approvals WHERE branch_id = ${branchId}`;
-    // Optionally wipe sellers? User asked for "every page data clear", 
-    // Sellers are usually persistent but let's clear them too if requested.
     await sql`DELETE FROM sellers WHERE branch_id = ${branchId}`;
   }
 };

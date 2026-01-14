@@ -8,11 +8,19 @@ To initialize your Neon PostgreSQL database for all system features, execute the
 CREATE TABLE IF NOT EXISTS supermarket_config (
     id SERIAL PRIMARY KEY,
     name TEXT DEFAULT 'SUPERMART PRO',
-    logo_url TEXT,
-    admin_password TEXT DEFAULT 'admin'
+    logo_url TEXT
 );
 
--- 2. Branches Table
+-- 2. Admin Accounts Table (New)
+CREATE TABLE IF NOT EXISTS admins (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Branches Table
 CREATE TABLE IF NOT EXISTS branches (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -20,7 +28,7 @@ CREATE TABLE IF NOT EXISTS branches (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 3. Products Table
+-- 4. Products Table
 CREATE TABLE IF NOT EXISTS products (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -33,7 +41,7 @@ CREATE TABLE IF NOT EXISTS products (
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Sellers Table
+-- 5. Sellers Table
 CREATE TABLE IF NOT EXISTS sellers (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
@@ -42,7 +50,7 @@ CREATE TABLE IF NOT EXISTS sellers (
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE
 );
 
--- 5. Transactions Table (Sales Ledger)
+-- 6. Transactions Table (Sales Ledger)
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -52,7 +60,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Transaction Items Table
+-- 7. Transaction Items Table
 CREATE TABLE IF NOT EXISTS transaction_items (
     id SERIAL PRIMARY KEY,
     transaction_id TEXT REFERENCES transactions(id) ON DELETE CASCADE,
@@ -64,7 +72,7 @@ CREATE TABLE IF NOT EXISTS transaction_items (
     cost_price_at_sale DECIMAL(12, 2) NOT NULL
 );
 
--- 7. Notifications Table
+-- 8. Notifications Table
 CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -74,7 +82,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 8. Approvals Table (New: Seller request queue)
+-- 9. Approvals Table (Seller request queue)
 CREATE TABLE IF NOT EXISTS approvals (
     id TEXT PRIMARY KEY,
     branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
@@ -87,8 +95,8 @@ CREATE TABLE IF NOT EXISTS approvals (
 );
 
 -- Initial Data
-INSERT INTO supermarket_config (name, logo_url, admin_password) 
-SELECT 'SUPERMART PRO', '', 'admin'
+INSERT INTO supermarket_config (name, logo_url) 
+SELECT 'SUPERMART PRO', ''
 WHERE NOT EXISTS (SELECT 1 FROM supermarket_config);
 
 INSERT INTO branches (id, name, location)

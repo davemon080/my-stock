@@ -1,6 +1,14 @@
 
 export type UserRole = 'Admin' | 'Seller';
 
+export interface Admin {
+  id: string;
+  email: string;
+  password: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface Seller {
   id: string;
   email: string;
@@ -52,7 +60,7 @@ export interface Branch {
 export interface AppConfig {
   supermarketName: string;
   logoUrl: string;
-  adminPassword: string;
+  adminPassword?: string; // Deprecated, but keeping for compatibility if needed
   sellers: Seller[];
   branches: Branch[];
 }
@@ -87,7 +95,6 @@ export interface ApprovalRequest {
   status: 'PENDING' | 'APPROVED' | 'DECLINED';
 }
 
-// Added Message interface for chat functionality
 export interface Message {
   id: string;
   role: 'user' | 'model';
